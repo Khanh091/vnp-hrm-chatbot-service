@@ -1,0 +1,26 @@
+services:
+  chatbot-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: vnpt-hrm-chatbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hrm_chatbot
+      POSTGRES_USER: hrm_chatbot
+      POSTGRES_PASSWORD: hrm_chatbot_password
+      TZ: Asia/Bangkok
+    ports:
+      - "5434:5432"
+    volumes:
+      - hrm_chatbot_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U hrm_chatbot -d hrm_chatbot"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hrm_chatbot_postgres_data:
