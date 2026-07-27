@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.retrieval.constants import DEFAULT_EMBEDDING_DIMENSION
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -27,6 +29,10 @@ class Settings(BaseSettings):
     ollama_chat_model: str = Field(min_length=1)
     ollama_embedding_model: str = Field(min_length=1)
     ollama_timeout_seconds: float = Field(gt=0)
+    tool_embedding_dimension: int = Field(
+        default=DEFAULT_EMBEDDING_DIMENSION,
+        gt=0,
+    )
 
     database_url: str = Field(min_length=1)
     tool_top_k: int = Field(gt=0)

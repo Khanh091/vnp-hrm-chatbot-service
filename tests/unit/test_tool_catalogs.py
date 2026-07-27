@@ -1,0 +1,65 @@
+import pytest
+
+from app.tools.catalogs import ALL_TOOLS
+from app.tools.definitions import Domain, RiskLevel, RouteType
+from app.tools.policies import validate_tool_definition
+
+ODOO_CONTROLLER_ENDPOINTS = {
+    "/api/hrm-chatbot/v1/profile/current/summary",
+    "/api/hrm-chatbot/v1/profile/current/employment",
+    "/api/hrm-chatbot/v1/profile/current/contact",
+    "/api/hrm-chatbot/v1/profile/current/history",
+    "/api/hrm-chatbot/v1/profile/current/education",
+    "/api/hrm-chatbot/v1/profile/current/certificates",
+    "/api/hrm-chatbot/v1/profile/current/skills",
+    "/api/hrm-chatbot/v1/profile/current/insurance",
+    "/api/hrm-chatbot/v1/profile/current/tax",
+    "/api/hrm-chatbot/v1/profile/current/bank-accounts",
+    "/api/hrm-chatbot/v1/profile/current/contracts",
+    "/api/hrm-chatbot/v1/attendance/current/daily",
+    "/api/hrm-chatbot/v1/attendance/current/monthly-summary",
+    "/api/hrm-chatbot/v1/attendance/current/history",
+    "/api/hrm-chatbot/v1/attendance/current/late-summary",
+    "/api/hrm-chatbot/v1/attendance/current/missing-punch-summary",
+    "/api/hrm-chatbot/v1/attendance/current/missing-work-context",
+    "/api/hrm-chatbot/v1/leave/types",
+    "/api/hrm-chatbot/v1/leave/current/balance",
+    "/api/hrm-chatbot/v1/leave/current/used",
+    "/api/hrm-chatbot/v1/leave/current/history",
+    "/api/hrm-chatbot/v1/leave/current/calendar",
+    "/api/hrm-chatbot/v1/leave/current/request-status",
+    "/api/hrm-chatbot/v1/leave/current/eligibility",
+    "/api/hrm-chatbot/v1/leave/requests",
+    "/api/hrm-chatbot/v1/leave/requests/{request_id}",
+    "/api/hrm-chatbot/v1/leave/requests/{request_id}/cancel",
+}
+
+
+@pytest.mark.parametrize("tool", ALL_TOOLS, ids=lambda tool: tool.name)
+def test_every_catalog_tool_has_valid_distinct_metadata(tool: object) -> None:
+    validate_tool_definition(tool)  # type: ignore[arg-type]
+    assert len(tool.examples) >= 5  # type: ignore[attr-defined]
+    assert len(tool.negative_examples) >= 3  # type: ignore[attr-defined]
+    assert set(tool.examples).isdisjoint(tool.negative_examples)  # type: ignore[attr-defined]
+
+
+def test_catalog_contains_only_real_odoo_controller_endpoints() -> None:
+    assert {tool.endpoint for tool in ALL_TOOLS} == ODOO_CONTROLLER_ENDPOINTS
+
+
+def test_catalog_domain_counts_are_expected() -> None:
+    assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 11
+    assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
+    assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
+
+
+def test_leave_commands_require_confirmation_and_write_risk() -> None:
+    commands = [
+        tool
+        for tool in ALL_TOOLS
+        if tool.domain is Domain.LEAVE and tool.route_type is RouteType.COMMAND
+    ]
+
+    assert len(commands) == 3
+    assert all(tool.risk_level is RiskLevel.WRITE for tool in commands)
+    assert all(tool.requires_confirmation for tool in commands)

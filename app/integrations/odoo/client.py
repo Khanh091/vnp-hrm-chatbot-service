@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -82,6 +82,33 @@ class OdooClient:
             json=payload.model_dump(),
         )
 
+    async def request_registered_tool(
+        self,
+        *,
+        method: str,
+        path: str,
+        request_id: str,
+        response_model: type[ResponseT],
+        payload: dict[str, Any],
+    ) -> ResponseT:
+        """Transport hook for a path already approved by ToolExecutor."""
+
+        if method == "GET":
+            return await self._request(
+                method,
+                path,
+                request_id=request_id,
+                response_model=response_model,
+                params=payload,
+            )
+        return await self._request(
+            method,
+            path,
+            request_id=request_id,
+            response_model=response_model,
+            json=payload,
+        )
+
     async def _request(
         self,
         method: str,
@@ -89,7 +116,8 @@ class OdooClient:
         *,
         request_id: str,
         response_model: type[ResponseT],
-        json: dict[str, object] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> ResponseT:
         try:
             response = await self._client.request(
@@ -97,6 +125,7 @@ class OdooClient:
                 path,
                 headers={"X-Request-ID": request_id},
                 json=json,
+                params=params,
             )
         except httpx.TimeoutException as error:
             raise OdooConnectionError("Odoo request timed out") from error
