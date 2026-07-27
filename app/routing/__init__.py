@@ -1,5 +1,5 @@
-from app.routing.candidate_retriever import CandidateRetriever
-from app.routing.query_classifier import QueryClassifier
-from app.routing.query_normalizer import QueryNormalizer
+"""Query routing and candidate retrieval components.
 
-__all__ = ["CandidateRetriever", "QueryClassifier", "QueryNormalizer"]
+Concrete classes are imported from their modules to avoid circular imports
+between routing schemas, classifier prompts, and classifier services.
+"""

@@ -170,7 +170,10 @@ LEAVE_TOOLS = (
         operation=Operation.LIST,
         route_type=RouteType.QUERY,
         risk_level=RiskLevel.READ,
-        description="Liệt kê các loại nghỉ áp dụng cho người dùng.",
+        description=(
+            "Tra cứu danh sách các loại nghỉ mà người dùng được phép hoặc "
+            "có thể đăng ký khi tạo đơn."
+        ),
         endpoint=f"{_BASE}/types",
         http_method=HttpMethod.GET,
         argument_schema=NoArguments,
@@ -180,6 +183,7 @@ LEAVE_TOOLS = (
             "Công ty đang áp dụng các nhóm phép gì?",
             "Cho xem mã và tên các loại nghỉ.",
             "Tôi được chọn những loại phép nào khi tạo đơn?",
+            "Có những loại nghỉ nào tôi được đăng ký?",
         ),
         negative_examples=(
             "Số dư phép thường niên của tôi.",

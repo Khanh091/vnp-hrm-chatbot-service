@@ -63,14 +63,37 @@ class RuleHints(BaseModel):
 class QueryClassification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    route_type: RouteType
-    primary_domain: Domain
-    secondary_domains: list[Domain] = Field(default_factory=list)
-    capability_hint: str | None = Field(default=None, max_length=80)
-    operation_hint: Operation | None = None
-    scope: SubjectScope = SubjectScope.SELF
+    route_type: RouteType = Field(
+        description="Mục đích xử lý của toàn bộ câu hỏi; không phải domain.",
+    )
+    primary_domain: Domain = Field(
+        description="Domain HRM chính; không phải route.",
+    )
+    secondary_domains: list[Domain] = Field(
+        default_factory=list,
+        description="Các domain phụ thực sự cần làm ngữ cảnh.",
+    )
+    capability_hint: str | None = Field(
+        default=None,
+        max_length=80,
+        pattern=r"^[a-z][a-z0-9_]*$",
+        description="Nhãn năng lực snake_case ngắn; tuyệt đối không phải tên tool.",
+    )
+    operation_hint: Operation | None = Field(
+        default=None,
+        description="Thao tác người dùng muốn thực hiện.",
+    )
+    scope: SubjectScope = Field(
+        default=SubjectScope.SELF,
+        description="Đối tượng dữ liệu được hỏi, không quyết định quyền truy cập.",
+    )
     confidence: float = Field(ge=0.0, le=1.0)
-    reason_code: str | None = Field(default=None, max_length=80)
+    reason_code: str | None = Field(
+        default=None,
+        max_length=80,
+        pattern=r"^[A-Z][A-Z0-9_]*$",
+        description="Mã UPPER_SNAKE_CASE ngắn, không phải explanation.",
+    )
 
     @field_validator("secondary_domains")
     @classmethod

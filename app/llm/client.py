@@ -54,10 +54,15 @@ class OllamaLlmClient:
         user_prompt: str,
         schema: type[SchemaT],
     ) -> SchemaT:
+        response_schema = schema.model_json_schema()
+        response_schema["required"] = list(
+            response_schema.get("properties", {})
+        )
         payload: dict[str, Any] = {
             "model": self._model,
             "stream": False,
-            "format": schema.model_json_schema(),
+            "think": False,
+            "format": response_schema,
             "options": {"temperature": 0},
             "messages": [
                 {"role": "system", "content": system_prompt},

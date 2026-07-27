@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict
 
 from app.config import get_settings
@@ -37,9 +39,14 @@ def _percent(numerator: int, denominator: int) -> float:
     return 100.0 * numerator / denominator if denominator else 0.0
 
 
-async def run() -> int:
+async def run(*, limit: int | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     raw: list[dict[str, Any]] = yaml.safe_load(DATASET.read_text("utf-8"))
     cases = [EvaluationCase.model_validate(item) for item in raw]
+    if limit is not None:
+        cases = cases[:limit]
     settings = get_settings()
     llm = OllamaLlmClient(settings)
     embeddings = OllamaEmbeddingProvider(settings)
@@ -64,7 +71,7 @@ async def run() -> int:
     latencies: list[float] = []
     failures: list[str] = []
     try:
-        for case in cases:
+        for case_number, case in enumerate(cases, start=1):
             started = perf_counter()
             try:
                 result = await service.route(case.query)
@@ -79,6 +86,18 @@ async def run() -> int:
                 result.classification.primary_domain.value
                 == case.expected_domain
             )
+            secondary_ok = (
+                case.expected_secondary_domain is None
+                or case.expected_secondary_domain
+                in {
+                    domain.value
+                    for domain in result.classification.secondary_domains
+                }
+            )
+            scope_ok = (
+                case.expected_scope is None
+                or result.classification.scope.value == case.expected_scope
+            )
             route_correct += int(route_ok)
             domain_correct += int(domain_ok)
             candidate_names = [
@@ -91,12 +110,30 @@ async def run() -> int:
                     hit = case.expected_tool_in_top_k in candidate_names[:k]
                     recall[k] += int(hit)
                 recall_ok = case.expected_tool_in_top_k in candidate_names[:5]
-            if not route_ok or not domain_ok or not recall_ok:
+            if (
+                not route_ok
+                or not domain_ok
+                or not secondary_ok
+                or not scope_ok
+                or not recall_ok
+            ):
+                secondary_values = [
+                    item.value
+                    for item in result.classification.secondary_domains
+                ]
                 failures.append(
                     f"{case.query} [route={result.classification.route_type.value}, "
                     f"domain={result.classification.primary_domain.value}, "
+                    f"secondary={secondary_values}, "
+                    f"scope={result.classification.scope.value}, "
                     f"top5={candidate_names[:5]}]"
                 )
+            print(
+                f"[{case_number}/{len(cases)}] "
+                f"route={result.classification.route_type.value} "
+                f"domain={result.classification.primary_domain.value}",
+                flush=True,
+            )
     finally:
         await llm.close()
         await embeddings.close()
@@ -123,7 +160,17 @@ async def run() -> int:
 
 
 def main() -> None:
-    raise SystemExit(asyncio.run(run()))
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Only evaluate the first N cases (development diagnostics).",
+    )
+    arguments = parser.parse_args()
+    if arguments.limit is not None and arguments.limit <= 0:
+        parser.error("--limit must be greater than zero")
+    raise SystemExit(asyncio.run(run(limit=arguments.limit)))
 
 
 if __name__ == "__main__":

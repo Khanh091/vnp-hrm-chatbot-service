@@ -92,8 +92,12 @@ class ToolIndexer:
         ]
 
         try:
-            changed_embeddings = await self._embedding_provider.embed_documents(
-                [text for _, text in changed]
+            changed_embeddings = (
+                await self._embedding_provider.embed_documents(
+                    [text for _, text in changed]
+                )
+                if changed
+                else []
             )
         except EmbeddingError:
             disabled = await self._repository.disable_missing(set(keys))

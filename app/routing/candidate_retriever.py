@@ -17,7 +17,6 @@ from app.tools.registry import ToolNotFoundError, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_DOMAINS = (Domain.PROFILE, Domain.ATTENDANCE, Domain.LEAVE)
 _HIGH_CONFIDENCE = 0.7
 
 
@@ -40,6 +39,13 @@ class CandidateRetriever:
         self._registry = registry
         self._embedding_provider = embedding_provider
         self._vector_store = vector_store
+        self._supported_domains = tuple(
+            dict.fromkeys(
+                Domain(tool.domain.value)
+                for tool in registry.list_all()
+                if tool.enabled
+            )
+        )
 
     async def retrieve(
         self,
@@ -134,7 +140,7 @@ class CandidateRetriever:
     ) -> tuple[tuple[Domain, ...], str | None]:
         classification = request.classification
         primary = classification.primary_domain
-        if primary in _SUPPORTED_DOMAINS and await self._has(
+        if primary in self._supported_domains and await self._has(
             (primary,),
             route_types,
         ):
@@ -143,7 +149,7 @@ class CandidateRetriever:
         secondary = tuple(
             domain
             for domain in classification.secondary_domains
-            if domain in _SUPPORTED_DOMAINS and domain is not primary
+            if domain in self._supported_domains and domain is not primary
         )
         if secondary and await self._has(secondary, route_types):
             return secondary, "SECONDARY_DOMAIN_FALLBACK"
@@ -155,7 +161,7 @@ class CandidateRetriever:
 
         broader = tuple(
             domain
-            for domain in _SUPPORTED_DOMAINS
+            for domain in self._supported_domains
             if domain is not primary and domain not in secondary
         )
         if broader and await self._has(broader, route_types):

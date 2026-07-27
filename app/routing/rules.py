@@ -2,7 +2,11 @@ import re
 
 from app.routing.schemas import Domain, Operation, RouteType, RuleHints
 
-_CREATE = re.compile(r"\b(tạo|đăng ký|lập|gửi yêu cầu)\b", re.IGNORECASE)
+_CREATE = re.compile(
+    r"(?:^|\b(?:hãy|giúp tôi|tôi muốn)\s+)"
+    r"(tạo|đăng ký|lập|gửi yêu cầu)\b",
+    re.IGNORECASE,
+)
 _UPDATE = re.compile(r"\b(sửa|cập nhật|điều chỉnh|đổi)\b", re.IGNORECASE)
 _CANCEL = re.compile(r"\b(hủy|huỷ|rút yêu cầu|xóa bỏ)\b", re.IGNORECASE)
 _LEAVE_CONTEXT = re.compile(
