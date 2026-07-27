@@ -1,0 +1,155 @@
+- query: "Tôi còn bao nhiêu ngày phép?"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_balance
+- query: "Năm nay tôi đã dùng mấy ngày phép rồi?"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_used
+- query: "Liệt kê các đơn nghỉ tôi đã gửi tháng trước"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_history
+- query: "Đơn nghỉ số 18 đã duyệt chưa?"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_request_status
+- query: "Cho xem lịch nghỉ của tôi tháng này"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_calendar
+- query: "Tôi có đủ phép để nghỉ hai ngày tuần sau không?"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_check_eligibility
+- query: "Có những loại nghỉ nào tôi được đăng ký?"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_list_types
+- query: "Tạo đơn nghỉ phép ngày mai"
+  expected_route: transaction
+  expected_domain: leave
+  expected_tool_in_top_k: leave_create_request
+- query: "Cập nhật lý do của đơn nghỉ số 25"
+  expected_route: transaction
+  expected_domain: leave
+  expected_tool_in_top_k: leave_update_request
+- query: "Hủy yêu cầu nghỉ mã 32 giúp tôi"
+  expected_route: transaction
+  expected_domain: leave
+  expected_tool_in_top_k: leave_cancel_request
+- query: "Cho tôi xem hồ sơ nhân sự tổng quan"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_summary
+- query: "Tôi đang giữ vị trí nào trong đơn vị?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_employment
+- query: "Email và số điện thoại của tôi đang lưu thế nào?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_contact
+- query: "Tôi từng chuyển qua những phòng ban nào?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_history
+- query: "Trình độ học vấn của tôi là gì?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_education
+- query: "Tôi có những chứng chỉ nghề nghiệp nào?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_certificates
+- query: "Danh sách kỹ năng chuyên môn trong hồ sơ"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_skills
+- query: "Mã số bảo hiểm xã hội của tôi"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_insurance
+- query: "Cho xem mã số thuế cá nhân"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_tax
+- query: "Tài khoản ngân hàng nhận lương của tôi"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_bank_accounts
+- query: "Hợp đồng hiện tại hết hạn ngày nào?"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_tool_in_top_k: profile_get_contracts
+- query: "Chấm công hôm qua của tôi thế nào?"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_daily
+- query: "Tổng kết ngày công tháng này"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_monthly_summary
+- query: "Lịch sử check-in check-out tuần qua"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_history
+- query: "Tháng này tôi đi muộn bao nhiêu lần?"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_late_summary
+- query: "Tôi quên chấm ra những ngày nào?"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_missing_punch_summary
+- query: "Vì sao hệ thống tính tôi thiếu công?"
+  expected_route: analytics
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_missing_work_context
+- query: "  Tôi   còn bao nhiêu   ngày phép? "
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_balance
+- query: "tui da dung bao nhju ngay phep"
+  expected_route: structured_query
+  expected_domain: leave
+  expected_tool_in_top_k: leave_get_used
+- query: "À cho tôi hỏi là tháng này tôi có đi trễ lần nào không vậy?"
+  expected_route: structured_query
+  expected_domain: attendance
+  expected_tool_in_top_k: attendance_get_late_summary
+- query: "Tôi nghỉ hôm qua nên bảng công bị thiếu đúng không?"
+  expected_route: analytics
+  expected_domain: attendance
+  expected_secondary_domain: leave
+  expected_tool_in_top_k: attendance_get_missing_work_context
+- query: "Hồ sơ của anh Nguyễn Văn A"
+  expected_route: structured_query
+  expected_domain: profile
+  expected_scope: named_employee
+  expected_tool_in_top_k:
+- query: "Quy định nghỉ phép năm là gì?"
+  expected_route: document_qa
+  expected_domain: general
+  expected_tool_in_top_k:
+- query: "Mở màn hình đăng ký nghỉ phép"
+  expected_route: navigation
+  expected_domain: leave
+  expected_tool_in_top_k:
+- query: "Thời tiết hôm nay thế nào?"
+  expected_route: unsupported
+  expected_domain: general
+  expected_tool_in_top_k:
+- query: "Xin chào, bạn khỏe không?"
+  expected_route: general_chat
+  expected_domain: general
+  expected_tool_in_top_k:
+- query: "Tạo báo cáo lương toàn công ty"
+  expected_route: transaction
+  expected_domain: general
+  expected_scope: company
+  expected_tool_in_top_k:
+- query: "Sửa đơn nghỉ hay chỉ xem trạng thái đơn số 12?"
+  expected_route: transaction
+  expected_domain: leave
+  expected_tool_in_top_k: leave_update_request

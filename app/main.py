@@ -12,6 +12,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.api.routers.chat import router as chat_router
+from app.api.routers.debug_routing import router as debug_routing_router
 from app.api.routers.health import router as health_router
 from app.api.schemas.common import ErrorResponse, ResponseMeta
 from app.common.enums import ResponseCode
@@ -19,6 +20,15 @@ from app.common.exceptions import AppError
 from app.config import Settings, get_settings
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
+from app.llm.client import OllamaLlmClient
+from app.persistence.database import Database
+from app.retrieval.embeddings import OllamaEmbeddingProvider
+from app.retrieval.vector_store import DatabasePgVectorStore
+from app.routing.candidate_retriever import CandidateRetriever
+from app.routing.query_classifier import QueryClassifier
+from app.routing.query_normalizer import QueryNormalizer
+from app.routing.service import RoutingService
+from app.tools import build_tool_registry
 
 logger = logging.getLogger("app.requests")
 
@@ -49,24 +59,54 @@ def create_app(
     *,
     settings: Settings | None = None,
     odoo_client: OdooClient | None = None,
+    routing_service: RoutingService | None = None,
 ) -> FastAPI:
+    resolved_settings = settings or get_settings()
+
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        resolved_settings = settings or get_settings()
         application.state.settings = resolved_settings
         application.state.odoo_client = odoo_client or OdooClient(
             resolved_settings,
         )
+        llm_client: OllamaLlmClient | None = None
+        embedding_provider: OllamaEmbeddingProvider | None = None
+        database: Database | None = None
+        if resolved_settings.app_debug:
+            if routing_service is not None:
+                application.state.routing_service = routing_service
+            else:
+                llm_client = OllamaLlmClient(resolved_settings)
+                embedding_provider = OllamaEmbeddingProvider(resolved_settings)
+                database = Database(resolved_settings.database_url)
+                application.state.routing_service = RoutingService(
+                    QueryNormalizer(),
+                    QueryClassifier(llm_client),
+                    CandidateRetriever(
+                        build_tool_registry(),
+                        embedding_provider,
+                        DatabasePgVectorStore(database),
+                    ),
+                    top_k=resolved_settings.tool_top_k,
+                    fetch_k=resolved_settings.tool_fetch_k,
+                    min_score=resolved_settings.tool_min_score,
+                )
         try:
             yield
         finally:
+            if llm_client is not None:
+                await llm_client.close()
+            if embedding_provider is not None:
+                await embedding_provider.close()
+            if database is not None:
+                await database.close()
             if odoo_client is None:
                 await cast(OdooClient, application.state.odoo_client).close()
 
     app = FastAPI(
         title="VNPT HRM Chatbot Service",
         version="0.1.0",
-        debug=False,
+        debug=resolved_settings.app_debug,
         lifespan=lifespan,
     )
 
@@ -154,6 +194,8 @@ def create_app(
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
+    if resolved_settings.app_debug:
+        app.include_router(debug_routing_router, prefix="/api/v1")
 
     return app
 

@@ -3,7 +3,7 @@ from functools import lru_cache
 from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.retrieval.constants import DEFAULT_EMBEDDING_DIMENSION
+from app.common.constants import DEFAULT_EMBEDDING_DIMENSION
 
 
 class Settings(BaseSettings):
