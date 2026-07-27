@@ -1,7 +1,7 @@
-from enum import StrEnum
+from enum import Enum
 
 
-class ResponseCode(StrEnum):
+class ResponseCode(str, Enum):
     SUCCESS = "SUCCESS"
     INVALID_REQUEST = "INVALID_REQUEST"
     ODOO_AUTHENTICATION_ERROR = "ODOO_AUTHENTICATION_ERROR"

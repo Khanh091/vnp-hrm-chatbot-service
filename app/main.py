@@ -114,7 +114,7 @@ def create_app(
         request: Request,
         error: RequestValidationError,
     ) -> JSONResponse:
-        details = {
+        details: dict[str, object] = {
             "errors": [
                 {
                     "location": ".".join(str(part) for part in item["loc"]),
@@ -139,8 +139,7 @@ def create_app(
     ) -> JSONResponse:
         if isinstance(error, OdooError):
             logger.warning(
-                "Odoo request failed request_id=%s endpoint=%s "
-                "odoo_error_code=%s",
+                "Odoo request failed request_id=%s endpoint=%s odoo_error_code=%s",
                 request.state.request_id,
                 request.url.path,
                 error.odoo_error_code or "CONNECTION_ERROR",
@@ -160,3 +159,15 @@ def create_app(
 
 
 app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    development_settings = get_settings()
+    uvicorn.run(
+        "app.main:app",
+        host=development_settings.app_host,
+        port=development_settings.app_port,
+        reload=development_settings.app_debug,
+    )
