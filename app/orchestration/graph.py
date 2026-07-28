@@ -136,6 +136,7 @@ class ChatGraphWorkflow:
         *,
         action_type: str | None = None,
         action_id: str | None = None,
+        clarification: dict[str, Any] | None = None,
     ) -> ChatPipelineResult:
         started = perf_counter()
         initial: ChatGraphState = {
@@ -144,6 +145,7 @@ class ChatGraphWorkflow:
             "user_message": message,
             "action_type": action_type,
             "action_id": action_id,
+            "clarification": clarification,
             "trusted_context": trusted_context.model_dump(mode="json"),
             "normalized_query": None,
             "classification": {},

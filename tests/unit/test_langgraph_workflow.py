@@ -99,6 +99,17 @@ def test_action_requires_conversation_id() -> None:
         )
 
 
+def test_structured_clarification_requires_conversation_id() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(
+            clarification={
+                "field": "leave_type_id",
+                "value": 5,
+                "label": "Phép năm",
+            }
+        )
+
+
 def test_leave_workflow_asks_one_field_in_configured_order() -> None:
     workflow = build_workflow_registry().get("leave_create_request")
     assert workflow is not None

@@ -1,11 +1,29 @@
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.models.conversation_message import ConversationMessage
 
 
 class MessageRepository:
+    async def list_recent(
+        self,
+        session: AsyncSession,
+        *,
+        conversation_id: str,
+        limit: int,
+    ) -> list[ConversationMessage]:
+        rows = await session.scalars(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_id == conversation_id
+            )
+            .order_by(ConversationMessage.id.desc())
+            .limit(limit)
+        )
+        return list(reversed(rows.all()))
+
     async def add(
         self,
         session: AsyncSession,

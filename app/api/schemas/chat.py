@@ -29,12 +29,36 @@ class ChatAction(BaseModel):
     )
 
 
+class ChatClarification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(min_length=1, max_length=128)
+    value: int | str
+    label: str = Field(min_length=1, max_length=500)
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: int | str) -> int | str:
+        if isinstance(value, bool):
+            raise ValueError(
+                "clarification value must be an integer or non-empty string"
+            )
+        if isinstance(value, str):
+            value = value.strip()
+            if not value or len(value) > 500:
+                raise ValueError(
+                    "clarification value must be an integer or non-empty string"
+                )
+        return value
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str | None = Field(default=None, min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
     action: ChatAction | None = None
+    clarification: ChatClarification | None = None
 
     @field_validator("message")
     @classmethod
@@ -48,10 +72,20 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def exactly_one_input(self) -> "ChatRequest":
-        if (self.message is None) == (self.action is None):
-            raise ValueError("provide exactly one of message or action")
-        if self.action is not None and self.conversation_id is None:
-            raise ValueError("conversation_id is required for actions")
+        provided = sum(
+            item is not None
+            for item in (self.message, self.action, self.clarification)
+        )
+        if provided != 1:
+            raise ValueError(
+                "provide exactly one of message, action, or clarification"
+            )
+        if (
+            self.action is not None or self.clarification is not None
+        ) and self.conversation_id is None:
+            raise ValueError(
+                "conversation_id is required for workflow continuations"
+            )
         return self
 
 

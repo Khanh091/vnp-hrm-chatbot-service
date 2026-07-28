@@ -126,6 +126,37 @@ class ConversationService:
                 request_id=request_id,
             )
 
+    async def recent_messages(
+        self,
+        conversation_id: str,
+        *,
+        odoo_user_id: int,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        await self.load_owned(conversation_id, odoo_user_id)
+        async with self._database.session() as session:
+            items = await self._messages.list_recent(
+                session,
+                conversation_id=conversation_id,
+                limit=min(max(limit, 1), 100),
+            )
+            return [
+                {
+                    "id": item.id,
+                    "role": item.role,
+                    "type": item.message_type,
+                    "text": item.content,
+                    "data": item.structured_data,
+                    "timestamp": item.created_at,
+                }
+                for item in items
+                if item.role in {
+                    MessageRole.USER.value,
+                    MessageRole.ASSISTANT.value,
+                    MessageRole.SYSTEM.value,
+                }
+            ]
+
     async def reset(
         self, conversation_id: str, odoo_user_id: int
     ) -> None:

@@ -78,7 +78,16 @@ async def merge_clarification_node(
     options: list[dict[str, Any]] = []
     resolved = False
     trusted_data = state["trusted_context"]
-    if field in {"date", "date_from", "date_to"}:
+    structured = state.get("clarification")
+    if (
+        field
+        and isinstance(structured, dict)
+        and structured.get("field") == field
+        and isinstance(structured.get("value"), (int, str))
+    ):
+        arguments[field] = structured["value"]
+        resolved = True
+    elif field in {"date", "date_from", "date_to"}:
         try:
             value = runtime.context.date_resolver.resolve(
                 message,

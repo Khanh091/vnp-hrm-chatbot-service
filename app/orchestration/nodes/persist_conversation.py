@@ -35,9 +35,19 @@ async def persist_conversation_node(
         else MessageType.TEXT
     )
     response_data = state.get("response_data") or {}
+    safe_keys = {
+        "error_code",
+        "action_id",
+        "status",
+        "field",
+        "options",
+        "title",
+        "summary",
+        "expires_at",
+    }
     safe_data: dict[str, Any] = {
         key: response_data[key]
-        for key in ("tool_name", "error_code", "action_id", "status")
+        for key in safe_keys
         if key in response_data
     }
     await runtime.context.conversation_service.add_message(

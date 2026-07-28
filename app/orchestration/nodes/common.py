@@ -1,9 +1,25 @@
+from collections.abc import Callable
+from contextvars import ContextVar, Token
 from datetime import date, datetime
 from time import perf_counter
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.orchestration.state import ChatGraphState
+
+GraphEventSink = Callable[[dict[str, Any]], None]
+graph_event_sink: ContextVar[GraphEventSink | None] = ContextVar(
+    "graph_event_sink",
+    default=None,
+)
+
+
+def set_graph_event_sink(sink: GraphEventSink) -> Token[GraphEventSink | None]:
+    return graph_event_sink.set(sink)
+
+
+def reset_graph_event_sink(token: Token[GraphEventSink | None]) -> None:
+    graph_event_sink.reset(token)
 
 
 def elapsed_ms(started: float) -> float:
@@ -22,7 +38,11 @@ def stage_update(
     if timing_name is not None and started is not None:
         timings[timing_name] = elapsed_ms(started)
     events = [*state.get("graph_events", [])]
-    events.append({"type": event, "data": data or {}})
+    graph_event = {"type": event, "data": data or {}}
+    events.append(graph_event)
+    sink = graph_event_sink.get()
+    if sink is not None:
+        sink(graph_event)
     return {
         "current_step": state.get("current_step", 0) + 1,
         "stage_timings": timings,

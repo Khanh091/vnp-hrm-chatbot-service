@@ -257,6 +257,19 @@ class PendingActionService:
             if cancelled is None:
                 raise PendingActionError("WORKFLOW_STATE_CONFLICT")
 
+    async def get_active_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        odoo_user_id: int,
+    ) -> PendingAction | None:
+        async with self._database.session() as session:
+            return await self._repository.get_active_for_conversation(
+                session,
+                conversation_id=conversation_id,
+                odoo_user_id=odoo_user_id,
+            )
+
     @staticmethod
     def _assert_access(
         item: PendingAction | None,

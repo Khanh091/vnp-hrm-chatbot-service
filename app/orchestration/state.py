@@ -50,6 +50,7 @@ class ChatGraphState(TypedDict, total=False):
     user_message: str | None
     action_type: str | None
     action_id: str | None
+    clarification: dict[str, Any] | None
     normalized_query: str | None
     trusted_context: dict[str, Any]
     turn_type: TurnType
