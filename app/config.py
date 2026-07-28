@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     )
     tool_min_margin: float = Field(default=0.05, ge=0, le=1)
     pending_action_ttl_seconds: int = Field(default=900, gt=0)
+    pending_execution_lease_seconds: int = Field(default=30, gt=0)
     conversation_state_ttl_seconds: int = Field(default=86400, gt=0)
     max_workflow_steps_per_request: int = Field(default=20, ge=5, le=100)
     max_tool_calls_per_request: int = Field(default=1, ge=1, le=1)
@@ -67,6 +68,13 @@ class Settings(BaseSettings):
     def validate_llm_provider(self) -> "Settings":
         if self.llm_provider == "groq" and self.groq_api_key is None:
             raise ValueError("GROQ_API_KEY is required for the Groq provider")
+        if (
+            not self.app_debug
+            and self.chatbot_ingress_api_key.get_secret_value() == "change-me"
+        ):
+            raise ValueError(
+                "CHATBOT_INGRESS_API_KEY must be changed outside debug mode"
+            )
         return self
 
 

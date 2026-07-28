@@ -18,9 +18,12 @@ class PendingActionError(RuntimeError):
 
 
 class PendingActionService:
-    def __init__(self, database: Database, ttl_seconds: int) -> None:
+    def __init__(
+        self, database: Database, ttl_seconds: int, execution_lease_seconds: int
+    ) -> None:
         self._database = database
         self._ttl = ttl_seconds
+        self._execution_lease = execution_lease_seconds
         self._repository = PendingActionRepository()
 
     async def create(
@@ -63,6 +66,7 @@ class PendingActionService:
         odoo_user_id: int,
     ) -> PendingAction:
         now = datetime.now(timezone.utc)
+        expired = False
         async with self._database.session() as session:
             item = await self._repository.get(session, action_id)
             self._assert_access(item, conversation_id, odoo_user_id)
@@ -79,8 +83,12 @@ class PendingActionService:
                     to_status=PendingActionStatus.EXPIRED.value,
                     values={},
                 )
-                raise PendingActionError("ACTION_EXPIRED")
-            return item
+                expired = True
+            else:
+                return item
+        if expired:
+            raise PendingActionError("ACTION_EXPIRED")
+        raise PendingActionError("ACTION_NOT_FOUND")
 
     async def claim_execution(
         self,
@@ -90,11 +98,19 @@ class PendingActionService:
         odoo_user_id: int,
     ) -> PendingAction:
         now = datetime.now(timezone.utc)
+        expired = False
         async with self._database.session() as session:
             current = await self._repository.get(session, action_id)
             self._assert_access(current, conversation_id, odoo_user_id)
             assert current is not None
-            if current.expires_at <= now:
+            if (
+                current.status
+                in {
+                    PendingActionStatus.PENDING.value,
+                    PendingActionStatus.CONFIRMED.value,
+                }
+                and current.expires_at <= now
+            ):
                 if current.status == PendingActionStatus.PENDING.value:
                     await self._repository.transition(
                         session,
@@ -104,9 +120,31 @@ class PendingActionService:
                         to_status=PendingActionStatus.EXPIRED.value,
                         values={},
                     )
-                raise PendingActionError("ACTION_EXPIRED")
-            self._raise_terminal_status(current.status)
-            confirmed = await self._repository.transition(
+                expired = True
+            elif current.status == PendingActionStatus.EXECUTING.value:
+                lease_expired = (
+                    current.executing_at is not None
+                    and current.executing_at
+                    <= now - timedelta(seconds=self._execution_lease)
+                )
+                if not lease_expired:
+                    raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
+                reclaimed = await self._repository.transition(
+                    session,
+                    action_id=action_id,
+                    odoo_user_id=odoo_user_id,
+                    from_statuses=(PendingActionStatus.EXECUTING.value,),
+                    to_status=PendingActionStatus.EXECUTING.value,
+                    values={"executing_at": now},
+                )
+                if reclaimed is None:
+                    raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
+                return reclaimed
+            if expired:
+                confirmed = None
+            else:
+                self._raise_terminal_status(current.status)
+                confirmed = await self._repository.transition(
                 session,
                 action_id=action_id,
                 odoo_user_id=odoo_user_id,
@@ -114,19 +152,25 @@ class PendingActionService:
                 to_status=PendingActionStatus.CONFIRMED.value,
                 values={"confirmed_at": now},
             )
-            if confirmed is None:
+            if not expired and confirmed is None:
                 raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
-            executing = await self._repository.transition(
+            executing = (
+                None
+                if expired
+                else await self._repository.transition(
                 session,
                 action_id=action_id,
                 odoo_user_id=odoo_user_id,
                 from_statuses=(PendingActionStatus.CONFIRMED.value,),
                 to_status=PendingActionStatus.EXECUTING.value,
                 values={"executing_at": now},
+                )
             )
-            if executing is None:
+            if not expired and executing is None:
                 raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
-            return executing
+            if executing is not None:
+                return executing
+        raise PendingActionError("ACTION_EXPIRED")
 
     async def cancel(
         self,
@@ -183,6 +227,34 @@ class PendingActionService:
                 values=values,
             )
             if item is None:
+                raise PendingActionError("WORKFLOW_STATE_CONFLICT")
+
+    async def cancel_for_conversation(
+        self, conversation_id: str, *, odoo_user_id: int
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        async with self._database.session() as session:
+            item = await self._repository.get_active_for_conversation(
+                session,
+                conversation_id=conversation_id,
+                odoo_user_id=odoo_user_id,
+            )
+            if item is None:
+                return
+            if item.status == PendingActionStatus.EXECUTING.value:
+                raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
+            cancelled = await self._repository.transition(
+                session,
+                action_id=item.action_id,
+                odoo_user_id=odoo_user_id,
+                from_statuses=(
+                    PendingActionStatus.PENDING.value,
+                    PendingActionStatus.CONFIRMED.value,
+                ),
+                to_status=PendingActionStatus.CANCELLED.value,
+                values={"cancelled_at": now},
+            )
+            if cancelled is None:
                 raise PendingActionError("WORKFLOW_STATE_CONFLICT")
 
     @staticmethod

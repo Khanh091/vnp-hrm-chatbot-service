@@ -1,0 +1,85 @@
+- name: create_leave_multi_turn
+  turns:
+    - user: "Tạo đơn nghỉ phép"
+      expected_type: clarification_required
+      expected_field: date_from
+    - user: "Thứ hai tuần sau"
+      expected_type: clarification_required
+      expected_field: date_to
+      forbidden_stages: [classification, candidate_retrieval, tool_selection]
+    - user: "Đến hết thứ ba"
+      expected_type: clarification_required
+      expected_field: leave_type_id
+      forbidden_stages: [classification, candidate_retrieval, tool_selection]
+    - user: "Phép năm"
+      expected_type: clarification_required
+      expected_field: reason
+    - user: "Việc cá nhân"
+      expected_type: confirmation_required
+      expected_tool: leave_create_request
+    - action: confirm
+      expected_type: answer
+      expected_tool: leave_create_request
+      forbidden_stages: [classification, candidate_retrieval, tool_selection]
+
+- name: cancel_pending_confirmation
+  setup_tool: leave_cancel_request
+  setup_arguments:
+    request_id: 123
+  turns:
+    - action: cancel
+      expected_type: answer
+      expected_status: cancelled
+
+- name: confirm_twice
+  setup_tool: leave_cancel_request
+  setup_arguments:
+    request_id: 123
+  turns:
+    - action: confirm
+      expected_type: answer
+    - action: confirm
+      expected_type: error
+      expected_error: ACTION_ALREADY_EXECUTED
+
+- name: other_user_cannot_confirm
+  setup_tool: leave_cancel_request
+  setup_arguments:
+    request_id: 123
+  turns:
+    - action: confirm
+      as_other_user: true
+      expected_type: error
+      expected_error: RESOURCE_ACCESS_DENIED
+
+- name: expired_confirmation
+  setup_tool: leave_create_request
+  setup_expired: true
+  turns:
+    - action: confirm
+      expected_type: error
+      expected_error: ACTION_EXPIRED
+
+- name: update_leave_after_restart
+  setup_tool: leave_update_request
+  restart_before_turn: true
+  turns:
+    - action: confirm
+      expected_type: answer
+      expected_tool: leave_update_request
+
+- name: cancel_leave_after_restart
+  setup_tool: leave_cancel_request
+  restart_before_turn: true
+  turns:
+    - action: confirm
+      expected_type: answer
+      expected_tool: leave_cancel_request
+
+- name: odoo_business_error_after_confirmation
+  setup_tool: leave_create_request
+  executor_error: INSUFFICIENT_LEAVE_BALANCE
+  turns:
+    - action: confirm
+      expected_type: error
+      expected_error: INSUFFICIENT_LEAVE_BALANCE

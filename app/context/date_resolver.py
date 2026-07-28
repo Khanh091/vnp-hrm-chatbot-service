@@ -2,7 +2,7 @@ import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 
-import dateparser
+import dateparser  # type: ignore[import-untyped]
 
 from app.routing.schemas import ResolvedDateRange
 
@@ -19,7 +19,6 @@ class DateResolver:
         current_date: date,
         timezone: str,
     ) -> ResolvedDateRange | None:
-        del timezone  # current_date is already resolved in the trusted timezone.
         normalized = " ".join(text.lower().split())
 
         if re.search(r"\bthứ hai\b", normalized) and not re.search(

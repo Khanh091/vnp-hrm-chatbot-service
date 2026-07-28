@@ -17,7 +17,11 @@ def test_health_endpoint(client: TestClient) -> None:
 def test_chat_rejects_empty_message(client: TestClient) -> None:
     response = client.post(
         "/api/v1/chat",
-        json={"message": "", "user_context": {"odoo_user_id": 2}},
+        headers={
+            "X-HRM-Chatbot-Ingress-Key": "test-ingress",
+            "X-Odoo-User-Id": "2",
+        },
+        json={"message": ""},
     )
 
     assert response.status_code == 422
@@ -27,7 +31,38 @@ def test_chat_rejects_empty_message(client: TestClient) -> None:
 def test_chat_rejects_too_long_message(client: TestClient) -> None:
     response = client.post(
         "/api/v1/chat",
-        json={"message": "x" * 4001, "user_context": {"odoo_user_id": 2}},
+        headers={
+            "X-HRM-Chatbot-Ingress-Key": "test-ingress",
+            "X-Odoo-User-Id": "2",
+        },
+        json={"message": "x" * 4001},
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_rejects_missing_ingress_key(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/chat",
+        headers={"X-Odoo-User-Id": "2"},
+        json={"message": "Tôi còn bao nhiêu ngày phép?"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTHENTICATION_ERROR"
+
+
+def test_chat_rejects_user_context_in_public_body(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/chat",
+        headers={
+            "X-HRM-Chatbot-Ingress-Key": "test-ingress",
+            "X-Odoo-User-Id": "2",
+        },
+        json={
+            "message": "Tôi còn bao nhiêu ngày phép?",
+            "user_context": {"odoo_user_id": 999},
+        },
     )
 
     assert response.status_code == 422

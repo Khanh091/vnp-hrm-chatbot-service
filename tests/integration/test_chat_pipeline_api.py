@@ -57,15 +57,18 @@ def test_chat_builds_trusted_context_and_calls_pipeline() -> None:
             chat_pipeline=pipeline,  # type: ignore[arg-type]
         )
     ) as client:
-        response = client.post(
-            "/api/v1/chat",
-            headers={"X-Request-ID": "req-chat-1"},
-            json={
-                "message": "Tôi còn bao nhiêu ngày phép?",
-                "conversation_id": "conv-1",
-                "user_context": {"odoo_user_id": 42},
-            },
-        )
+            response = client.post(
+                "/api/v1/chat",
+                headers={
+                    "X-Request-ID": "req-chat-1",
+                    "X-HRM-Chatbot-Ingress-Key": "test-ingress",
+                    "X-Odoo-User-Id": "42",
+                },
+                json={
+                    "message": "Tôi còn bao nhiêu ngày phép?",
+                    "conversation_id": "conv-1",
+                },
+            )
 
     assert response.status_code == 200
     assert response.json()["type"] == "answer"

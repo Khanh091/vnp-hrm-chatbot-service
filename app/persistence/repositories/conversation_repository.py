@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +11,13 @@ class ConversationRepository:
     async def get(
         self, session: AsyncSession, conversation_id: str
     ) -> Conversation | None:
-        return await session.scalar(
-            select(Conversation).where(
+        return cast(
+            Conversation | None,
+            await session.scalar(
+                select(Conversation).where(
                 Conversation.conversation_id == conversation_id
-            )
+                )
+            ),
         )
 
     async def create(
@@ -56,4 +59,4 @@ class ConversationRepository:
             )
             .values(**values, version=Conversation.version + 1)
         )
-        return bool(result.rowcount)
+        return bool(getattr(result, "rowcount", 0))

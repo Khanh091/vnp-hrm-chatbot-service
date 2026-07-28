@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,8 +11,36 @@ class PendingActionRepository:
     async def get(
         self, session: AsyncSession, action_id: str
     ) -> PendingAction | None:
-        return await session.scalar(
-            select(PendingAction).where(PendingAction.action_id == action_id)
+        return cast(
+            PendingAction | None,
+            await session.scalar(
+                select(PendingAction).where(
+                    PendingAction.action_id == action_id
+                )
+            ),
+        )
+
+    async def get_active_for_conversation(
+        self,
+        session: AsyncSession,
+        *,
+        conversation_id: str,
+        odoo_user_id: int,
+    ) -> PendingAction | None:
+        return cast(
+            PendingAction | None,
+            await session.scalar(
+                select(PendingAction)
+                .where(
+                    PendingAction.conversation_id == conversation_id,
+                    PendingAction.odoo_user_id == odoo_user_id,
+                    PendingAction.status.in_(
+                        ("pending", "confirmed", "executing")
+                    ),
+                )
+                .order_by(PendingAction.created_at.desc())
+                .limit(1)
+            ),
         )
 
     async def create(
@@ -59,4 +87,4 @@ class PendingActionRepository:
             )
             .values(status="expired")
         )
-        return int(result.rowcount or 0)
+        return int(getattr(result, "rowcount", 0) or 0)

@@ -1,37 +1,58 @@
+from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.api.schemas.common import ResponseMeta
 from app.orchestration.state import ChatResponseType, ChatStageTimings
 
 
-class UserContextRequest(BaseModel):
+class ChatActionType(str, Enum):
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
+class ChatAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    odoo_user_id: int = Field(
-        gt=0,
-        description=(
-            "Development/proxy-only identifier; production ingress must "
-            "authenticate the Odoo proxy before trusting it."
-        ),
+    type: ChatActionType
+    action_id: str = Field(
+        min_length=40,
+        max_length=64,
+        pattern=r"^act-[0-9a-fA-F-]{36}$",
     )
 
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(min_length=1, max_length=4000)
+    message: str | None = Field(default=None, min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
-    user_context: UserContextRequest
+    action: ChatAction | None = None
 
     @field_validator("message")
     @classmethod
-    def message_must_not_be_blank(cls, value: str) -> str:
+    def message_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = value.strip()
         if not value:
             raise ValueError("message must not be blank")
         return value
+
+    @model_validator(mode="after")
+    def exactly_one_input(self) -> "ChatRequest":
+        if (self.message is None) == (self.action is None):
+            raise ValueError("provide exactly one of message or action")
+        if self.action is not None and self.conversation_id is None:
+            raise ValueError("conversation_id is required for actions")
+        return self
 
 
 class ChatResponse(BaseModel):

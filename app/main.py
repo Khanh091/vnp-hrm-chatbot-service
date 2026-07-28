@@ -1,4 +1,5 @@
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from time import perf_counter
@@ -12,6 +13,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.api.routers.chat import router as chat_router
+from app.api.routers.conversations import router as conversations_router
 from app.api.routers.debug_routing import router as debug_routing_router
 from app.api.routers.debug_tool_selection import (
     router as debug_tool_selection_router,
@@ -21,7 +23,10 @@ from app.api.schemas.common import ErrorResponse, ResponseMeta
 from app.common.enums import ResponseCode
 from app.common.exceptions import AppError
 from app.config import Settings, get_settings
-from app.context.conversation import ConversationStore
+from app.context.conversation_service import ConversationService, ConversationStateError
+from app.context.date_resolver import DateResolver
+from app.context.entity_resolver import EntityResolver
+from app.context.pending_action_service import PendingActionError, PendingActionService
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
 from app.llm.client import (
@@ -29,6 +34,8 @@ from app.llm.client import (
     OllamaLlmClient,
     build_llm_client,
 )
+from app.orchestration.context import GraphContext
+from app.orchestration.graph import ChatGraphWorkflow
 from app.orchestration.pipeline import ChatPipeline
 from app.persistence.database import Database
 from app.retrieval.embeddings import OllamaEmbeddingProvider
@@ -43,6 +50,7 @@ from app.routing.validator import ToolSelectionValidator
 from app.tools import build_tool_registry
 from app.tools.executor import ToolExecutor
 from app.tools.response_formatter import ToolResponseFormatter
+from app.workflows import build_workflow_registry
 
 logger = logging.getLogger("app.requests")
 
@@ -87,6 +95,7 @@ def create_app(
         llm_client: OllamaLlmClient | GroqLlmClient | None = None
         embedding_provider: OllamaEmbeddingProvider | None = None
         database: Database | None = None
+        checkpoint_context: object | None = None
         if chat_pipeline is not None:
             application.state.chat_pipeline = chat_pipeline
         else:
@@ -94,35 +103,95 @@ def create_app(
             llm_client = build_llm_client(resolved_settings)
             embedding_provider = OllamaEmbeddingProvider(resolved_settings)
             database = Database(resolved_settings.database_url)
+            query_normalizer = QueryNormalizer()
+            query_classifier = QueryClassifier(llm_client)
+            candidate_retriever = CandidateRetriever(
+                registry,
+                embedding_provider,
+                DatabasePgVectorStore(database),
+            )
             resolved_routing = routing_service or RoutingService(
-                QueryNormalizer(),
-                QueryClassifier(llm_client),
-                CandidateRetriever(
-                    registry,
-                    embedding_provider,
-                    DatabasePgVectorStore(database),
-                ),
+                query_normalizer,
+                query_classifier,
+                candidate_retriever,
                 top_k=resolved_settings.tool_top_k,
                 fetch_k=resolved_settings.tool_fetch_k,
                 min_score=resolved_settings.tool_min_score,
             )
-            application.state.chat_pipeline = ChatPipeline(
-                resolved_routing,
-                ToolSelector(llm_client, registry, resolved_settings),
-                ArgumentResolver(),
-                ToolSelectionValidator(registry, resolved_settings),
-                ToolExecutor(registry, application.state.odoo_client),
-                ToolResponseFormatter(),
-                ConversationStore(
-                    resolved_settings.pending_action_ttl_seconds
+            selector = ToolSelector(llm_client, registry, resolved_settings)
+            argument_resolver = ArgumentResolver()
+            validator = ToolSelectionValidator(registry, resolved_settings)
+            executor = ToolExecutor(registry, application.state.odoo_client)
+            formatter = ToolResponseFormatter()
+            graph_context = GraphContext(
+                query_normalizer=query_normalizer,
+                query_classifier=query_classifier,
+                candidate_retriever=candidate_retriever,
+                tool_selector=selector,
+                argument_resolver=argument_resolver,
+                date_resolver=DateResolver(),
+                entity_resolver=EntityResolver(),
+                validator=validator,
+                tool_executor=executor,
+                response_formatter=formatter,
+                conversation_service=ConversationService(
+                    database,
+                    resolved_settings.conversation_state_ttl_seconds,
                 ),
-                registry,
+                pending_action_service=PendingActionService(
+                    database,
+                    resolved_settings.pending_action_ttl_seconds,
+                    resolved_settings.pending_execution_lease_seconds,
+                ),
+                workflow_registry=build_workflow_registry(),
+                tool_registry=registry,
+                settings=resolved_settings,
+            )
+            application.state.conversation_service = (
+                graph_context.conversation_service
+            )
+            application.state.pending_action_service = (
+                graph_context.pending_action_service
+            )
+            checkpointer = None
+            try:
+                from langgraph.checkpoint.postgres.aio import (
+                    AsyncPostgresSaver,
+                )
+
+                checkpoint_url = (
+                    resolved_settings.database_url.replace(
+                        "postgresql+psycopg://", "postgresql://", 1
+                    )
+                )
+                os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
+                checkpoint_context = (
+                    AsyncPostgresSaver.from_conn_string(checkpoint_url)
+                )
+                checkpointer = await checkpoint_context.__aenter__()
+                await checkpointer.setup()
+            except Exception as error:
+                logger.warning(
+                    "langgraph_checkpointer_unavailable error=%s",
+                    type(error).__name__,
+                )
+                if checkpoint_context is not None:
+                    await checkpoint_context.__aexit__(  # type: ignore[attr-defined]
+                        None, None, None
+                    )
+                    checkpoint_context = None
+            application.state.routing_service = resolved_routing
+            application.state.chat_pipeline = ChatGraphWorkflow(
+                graph_context,
+                checkpointer=checkpointer,
             )
         if resolved_settings.app_debug:
-            application.state.routing_service = (
-                routing_service
-                or application.state.chat_pipeline.routing_service
-            )
+            if routing_service is not None:
+                application.state.routing_service = routing_service
+            elif not hasattr(application.state, "routing_service"):
+                application.state.routing_service = (
+                    application.state.chat_pipeline.routing_service
+                )
         try:
             yield
         finally:
@@ -132,6 +201,8 @@ def create_app(
                 await embedding_provider.close()
             if database is not None:
                 await database.close()
+            if checkpoint_context is not None:
+                await checkpoint_context.__aexit__(None, None, None)  # type: ignore[attr-defined]
             if odoo_client is None:
                 await cast(OdooClient, application.state.odoo_client).close()
 
@@ -224,8 +295,32 @@ def create_app(
             details=error.details,
         )
 
+    @app.exception_handler(ConversationStateError)
+    @app.exception_handler(PendingActionError)
+    async def workflow_state_exception_handler(
+        request: Request,
+        error: ConversationStateError | PendingActionError,
+    ) -> JSONResponse:
+        code = ResponseCode(error.code)
+        status_code = (
+            404
+            if error.code.endswith("_NOT_FOUND")
+            else 403
+            if error.code.endswith("_ACCESS_DENIED")
+            else 410
+            if error.code.endswith("_EXPIRED")
+            else 409
+        )
+        return _error_response(
+            request=request,
+            code=code,
+            message="Workflow state request could not be completed",
+            status_code=status_code,
+        )
+
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
+    app.include_router(conversations_router, prefix="/api/v1")
     if resolved_settings.app_debug:
         app.include_router(debug_routing_router, prefix="/api/v1")
         app.include_router(debug_tool_selection_router, prefix="/api/v1")

@@ -47,6 +47,7 @@ def route_after_validation(
         WorkflowStatus.CONFIRMATION_REQUIRED: "create_confirmation",
         WorkflowStatus.EXECUTE_READ: "execute_read_tool",
     }
-    return routes.get(
-        state.get("workflow_status"), "format_response"
-    )  # type: ignore[return-value]
+    status = state.get("workflow_status")
+    if status is None:
+        return "format_response"
+    return routes.get(status, "format_response")  # type: ignore[return-value]

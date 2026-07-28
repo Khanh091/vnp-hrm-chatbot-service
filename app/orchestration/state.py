@@ -1,9 +1,8 @@
 from enum import Enum
 from typing import Any
 
-from typing_extensions import TypedDict
-
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import TypedDict
 
 
 class ChatResponseType(str, Enum):
@@ -90,6 +89,13 @@ class ChatStageTimings(BaseModel):
     execution_ms: float = Field(default=0, ge=0)
     response_formatting_ms: float = Field(default=0, ge=0)
     total_ms: float = Field(default=0, ge=0)
+    normalization_ms: float = Field(default=0, ge=0)
+    conversation_load_ms: float = Field(default=0, ge=0)
+    turn_detection_ms: float = Field(default=0, ge=0)
+    argument_merge_ms: float = Field(default=0, ge=0)
+    pending_action_ms: float = Field(default=0, ge=0)
+    odoo_execution_ms: float = Field(default=0, ge=0)
+    conversation_persist_ms: float = Field(default=0, ge=0)
 
 
 class ChatPipelineResult(BaseModel):

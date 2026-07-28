@@ -29,6 +29,7 @@ def build_settings() -> Settings:
         tool_top_k=5,
         tool_fetch_k=20,
         tool_min_score=0.45,
+        chatbot_ingress_api_key="test-ingress",
     )
 
 

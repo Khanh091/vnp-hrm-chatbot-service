@@ -36,6 +36,7 @@ class ConversationService:
         trusted_context: TrustedExecutionContext,
     ) -> Conversation:
         now = datetime.now(timezone.utc)
+        expired = False
         async with self._database.session() as session:
             item = await self._conversations.get(session, conversation_id)
             if item is None:
@@ -55,8 +56,12 @@ class ConversationService:
             }:
                 item.status = ConversationStatus.EXPIRED.value
                 await session.flush()
-                raise ConversationStateError("CONVERSATION_EXPIRED")
-            return item
+                expired = True
+            else:
+                return item
+        if expired:
+            raise ConversationStateError("CONVERSATION_EXPIRED")
+        raise ConversationStateError("INVALID_CONVERSATION_STATE")
 
     async def load_owned(
         self, conversation_id: str, odoo_user_id: int
@@ -125,8 +130,6 @@ class ConversationService:
         self, conversation_id: str, odoo_user_id: int
     ) -> None:
         item = await self.load_owned(conversation_id, odoo_user_id)
-        if item.status == ConversationStatus.AWAITING_CONFIRMATION.value:
-            raise ConversationStateError("INVALID_CONVERSATION_STATE")
         await self.update(item, status=ConversationStatus.CANCELLED)
 
     @staticmethod
