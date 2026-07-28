@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 from datetime import date
@@ -46,13 +47,15 @@ def _percent(numerator: int, denominator: int) -> float:
     return 100 * numerator / denominator if denominator else 0.0
 
 
-async def run() -> int:
+async def run(*, limit: int | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     cases = [
         EvaluationCase.model_validate(item)
         for item in yaml.safe_load(DATASET.read_text("utf-8"))
     ]
+    if limit is not None:
+        cases = cases[:limit]
     settings = get_settings()
     llm = build_llm_client(settings)
     embeddings = OllamaEmbeddingProvider(settings)
@@ -77,16 +80,22 @@ async def run() -> int:
     argument_correct = 0
     result_type_correct = 0
     latencies: list[float] = []
+    classification_latencies: list[float] = []
+    selection_latencies: list[float] = []
     failures: list[str] = []
     try:
         for index, case in enumerate(cases, start=1):
             started = perf_counter()
             routed = await routing.route(case.query)
+            classification_latencies.append(
+                routed.timings.classification_ms
+            )
             selected_tool: str | None = None
             arguments: dict[str, Any] = {}
             result_type = "unsupported"
             contexts = selector.build_candidate_contexts(routed.candidates)
             if contexts:
+                selection_started = perf_counter()
                 selection = await selector.select(
                     ToolSelectorRequest(
                         original_query=case.query,
@@ -96,6 +105,9 @@ async def run() -> int:
                         current_date=EVALUATION_DATE,
                         timezone=EVALUATION_TIMEZONE,
                     )
+                )
+                selection_latencies.append(
+                    (perf_counter() - selection_started) * 1000
                 )
                 selected_tool = selection.selected_tool
                 if selected_tool is not None:
@@ -159,6 +171,16 @@ async def run() -> int:
     ordered = sorted(latencies)
     p95_index = max(0, int(len(ordered) * 0.95 + 0.999) - 1)
     average = sum(latencies) / len(latencies) if latencies else 0.0
+    classification_average = (
+        sum(classification_latencies) / len(classification_latencies)
+        if classification_latencies
+        else 0.0
+    )
+    selection_average = (
+        sum(selection_latencies) / len(selection_latencies)
+        if selection_latencies
+        else 0.0
+    )
     p95 = ordered[p95_index] if ordered else 0.0
     print(f"Total cases: {len(cases)}")
     print(
@@ -175,6 +197,11 @@ async def run() -> int:
     )
     print(f"Average latency: {average:.2f} ms")
     print(f"P95 latency: {p95:.2f} ms")
+    print(
+        f"Average classification latency: "
+        f"{classification_average:.2f} ms"
+    )
+    print(f"Average tool selection latency: {selection_average:.2f} ms")
     print(f"Failed cases: {len(failures)}")
     for failure in failures:
         print(f"- {failure}")
@@ -182,7 +209,12 @@ async def run() -> int:
 
 
 def main() -> None:
-    raise SystemExit(asyncio.run(run()))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=None)
+    arguments = parser.parse_args()
+    if arguments.limit is not None and arguments.limit <= 0:
+        parser.error("--limit must be greater than zero")
+    raise SystemExit(asyncio.run(run(limit=arguments.limit)))
 
 
 if __name__ == "__main__":

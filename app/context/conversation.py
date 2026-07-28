@@ -12,10 +12,36 @@ from app.routing.schemas import ConversationContext
 class PendingActionStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
+    EXECUTING = "executing"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
     EXECUTED = "executed"
     FAILED = "failed"
+
+
+class ConversationStatus(str, Enum):
+    ACTIVE = "active"
+    AWAITING_CLARIFICATION = "awaiting_clarification"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    FAILED = "failed"
+
+
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    TOOL = "tool"
+
+
+class MessageType(str, Enum):
+    TEXT = "text"
+    CLARIFICATION = "clarification"
+    CONFIRMATION = "confirmation"
+    TOOL_RESULT = "tool_result"
+    ERROR = "error"
 
 
 class ClarificationRequiredData(BaseModel):

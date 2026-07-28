@@ -3,9 +3,15 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.config import Settings
-from app.llm.client import LlmTimeoutError, OllamaLlmClient
+from app.llm.client import (
+    GroqLlmClient,
+    LlmTimeoutError,
+    OllamaLlmClient,
+    build_llm_client,
+)
 from app.llm.structured_output import StructuredOutputError
 from app.routing.query_classifier import QueryClassifier, QueryClassifierError
 from app.routing.query_normalizer import QueryNormalizer
@@ -214,3 +220,60 @@ async def test_ollama_classifier_disables_thinking() -> None:
     assert set(captured_payload["format"]["required"]) == set(
         captured_payload["format"]["properties"]
     )
+
+
+@pytest.mark.asyncio
+async def test_groq_client_uses_json_mode_without_reasoning() -> None:
+    captured_payload: dict[str, Any] = {}
+    captured_authorization = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_authorization
+        captured_payload.update(json.loads(request.content))
+        captured_authorization = request.headers["Authorization"]
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": QueryClassification(
+                                route_type=RouteType.STRUCTURED_QUERY,
+                                primary_domain=Domain.LEAVE,
+                                confidence=0.96,
+                            ).model_dump_json()
+                        }
+                    }
+                ]
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        base_url="https://groq.test/openai/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    settings = Settings.model_construct(
+        llm_provider="groq",
+        groq_base_url="https://groq.test/openai/v1",
+        groq_api_key=SecretStr("unit-test-secret"),
+        groq_chat_model="qwen/qwen3.6-27b",
+        groq_timeout_seconds=10.0,
+    )
+    client = GroqLlmClient(settings, client=http_client)
+    try:
+        result = await client.complete_structured(
+            system_prompt="system",
+            user_prompt="user",
+            schema=QueryClassification,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert result.primary_domain is Domain.LEAVE
+    assert captured_payload["reasoning_effort"] == "none"
+    assert captured_payload["response_format"] == {"type": "json_object"}
+    assert "JSON Schema" in captured_payload["messages"][0]["content"]
+    assert captured_authorization == "Bearer unit-test-secret"
+    built_client = build_llm_client(settings)
+    assert isinstance(built_client, GroqLlmClient)
+    await built_client.close()

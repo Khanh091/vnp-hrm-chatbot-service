@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Any
 
+from typing_extensions import TypedDict
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -10,6 +12,71 @@ class ChatResponseType(str, Enum):
     CONFIRMATION_REQUIRED = "confirmation_required"
     ERROR = "error"
     UNSUPPORTED = "unsupported"
+
+
+class TurnType(str, Enum):
+    NEW_QUERY = "new_query"
+    CLARIFICATION_ANSWER = "clarification_answer"
+    CONFIRMATION_ACCEPT = "confirmation_accept"
+    CONFIRMATION_CANCEL = "confirmation_cancel"
+
+
+class WorkflowStatus(str, Enum):
+    RUNNING = "running"
+    CLARIFICATION_REQUIRED = "clarification_required"
+    CONFIRMATION_REQUIRED = "confirmation_required"
+    EXECUTE_READ = "execute_read"
+    EXECUTE_WRITE = "execute_write"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class WorkflowIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    field: str | None = None
+
+
+class GraphEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatGraphState(TypedDict, total=False):
+    conversation_id: str
+    request_id: str
+    user_message: str | None
+    action_type: str | None
+    action_id: str | None
+    normalized_query: str | None
+    trusted_context: dict[str, Any]
+    turn_type: TurnType
+    workflow_status: WorkflowStatus
+    conversation_status: str
+    conversation_version: int
+    classification: dict[str, Any]
+    candidates: list[dict[str, Any]]
+    candidate_contexts: list[dict[str, Any]]
+    selection: dict[str, Any]
+    validation: dict[str, Any]
+    pending_tool_name: str | None
+    collected_arguments: dict[str, Any]
+    missing_arguments: list[str]
+    ambiguous_arguments: list[str]
+    workflow_data: dict[str, Any]
+    pending_action_id: str | None
+    pending_action: dict[str, Any]
+    tool_result: dict[str, Any] | None
+    response_type: ChatResponseType | None
+    response_text: str | None
+    response_data: dict[str, Any] | None
+    workflow_issues: list[dict[str, Any]]
+    current_step: int
+    stage_timings: dict[str, float]
+    graph_events: list[dict[str, Any]]
 
 
 class ChatStageTimings(BaseModel):

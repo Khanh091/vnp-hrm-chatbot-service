@@ -56,9 +56,12 @@ class Settings(BaseSettings):
     )
     tool_min_margin: float = Field(default=0.05, ge=0, le=1)
     pending_action_ttl_seconds: int = Field(default=900, gt=0)
+    conversation_state_ttl_seconds: int = Field(default=86400, gt=0)
+    max_workflow_steps_per_request: int = Field(default=20, ge=5, le=100)
     max_tool_calls_per_request: int = Field(default=1, ge=1, le=1)
     tool_selector_max_candidates: int = Field(default=3, ge=1, le=10)
     tool_selector_examples_per_kind: int = Field(default=2, ge=1, le=5)
+    chatbot_ingress_api_key: SecretStr = SecretStr("change-me")
 
     @model_validator(mode="after")
     def validate_llm_provider(self) -> "Settings":

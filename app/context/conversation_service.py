@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from app.context.conversation import (
+    ConversationStatus,
+    MessageRole,
+    MessageType,
+)
+from app.persistence.database import Database
+from app.persistence.models.conversation import Conversation
+from app.persistence.repositories import (
+    ConversationRepository,
+    MessageRepository,
+)
+from app.tools.definitions import TrustedExecutionContext
+
+
+class ConversationStateError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class ConversationService:
+    def __init__(self, database: Database, ttl_seconds: int) -> None:
+        self._database = database
+        self._ttl = ttl_seconds
+        self._conversations = ConversationRepository()
+        self._messages = MessageRepository()
+
+    async def load_or_create(
+        self,
+        conversation_id: str,
+        trusted_context: TrustedExecutionContext,
+    ) -> Conversation:
+        now = datetime.now(timezone.utc)
+        async with self._database.session() as session:
+            item = await self._conversations.get(session, conversation_id)
+            if item is None:
+                return await self._conversations.create(
+                    session,
+                    conversation_id=conversation_id,
+                    odoo_user_id=trusted_context.odoo_user_id,
+                    employee_id=trusted_context.employee_id,
+                    company_id=trusted_context.company_id,
+                    status=ConversationStatus.ACTIVE.value,
+                    expires_at=now + timedelta(seconds=self._ttl),
+                )
+            self._assert_owner(item, trusted_context.odoo_user_id)
+            if item.expires_at <= now and item.status in {
+                ConversationStatus.AWAITING_CLARIFICATION.value,
+                ConversationStatus.AWAITING_CONFIRMATION.value,
+            }:
+                item.status = ConversationStatus.EXPIRED.value
+                await session.flush()
+                raise ConversationStateError("CONVERSATION_EXPIRED")
+            return item
+
+    async def load_owned(
+        self, conversation_id: str, odoo_user_id: int
+    ) -> Conversation:
+        async with self._database.session() as session:
+            item = await self._conversations.get(session, conversation_id)
+            if item is None:
+                raise ConversationStateError("CONVERSATION_NOT_FOUND")
+            self._assert_owner(item, odoo_user_id)
+            return item
+
+    async def update(
+        self,
+        conversation: Conversation,
+        *,
+        status: ConversationStatus,
+        pending_tool_name: str | None = None,
+        collected_arguments: dict[str, Any] | None = None,
+        missing_arguments: list[str] | None = None,
+        ambiguous_arguments: list[str] | None = None,
+        workflow_data: dict[str, Any] | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        values: dict[str, Any] = {
+            "status": status.value,
+            "pending_tool_name": pending_tool_name,
+            "collected_arguments": collected_arguments or {},
+            "missing_arguments": missing_arguments or [],
+            "ambiguous_arguments": ambiguous_arguments or [],
+            "workflow_data": workflow_data or {},
+            "last_message_at": now,
+            "expires_at": now + timedelta(seconds=self._ttl),
+        }
+        async with self._database.session() as session:
+            changed = await self._conversations.update_state(
+                session,
+                conversation_id=conversation.conversation_id,
+                expected_version=conversation.version,
+                values=values,
+            )
+            if not changed:
+                raise ConversationStateError("WORKFLOW_STATE_CONFLICT")
+
+    async def add_message(
+        self,
+        *,
+        conversation_id: str,
+        role: MessageRole,
+        message_type: MessageType,
+        content: str | None,
+        structured_data: dict[str, Any],
+        request_id: str,
+    ) -> None:
+        async with self._database.session() as session:
+            await self._messages.add(
+                session,
+                conversation_id=conversation_id,
+                role=role.value,
+                message_type=message_type.value,
+                content=content,
+                structured_data=structured_data,
+                request_id=request_id,
+            )
+
+    async def reset(
+        self, conversation_id: str, odoo_user_id: int
+    ) -> None:
+        item = await self.load_owned(conversation_id, odoo_user_id)
+        if item.status == ConversationStatus.AWAITING_CONFIRMATION.value:
+            raise ConversationStateError("INVALID_CONVERSATION_STATE")
+        await self.update(item, status=ConversationStatus.CANCELLED)
+
+    @staticmethod
+    def _assert_owner(item: Conversation, odoo_user_id: int) -> None:
+        if item.odoo_user_id != odoo_user_id:
+            raise ConversationStateError("CONVERSATION_ACCESS_DENIED")

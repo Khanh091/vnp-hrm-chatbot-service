@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
 from app.persistence.database import Base
-from app.persistence.models import ToolEmbedding  # noqa: F401
+from app.persistence.models import (  # noqa: F401
+    Conversation,
+    ConversationMessage,
+    PendingAction,
+    ToolEmbedding,
+)
 
 config = context.config
 if config.config_file_name is not None:

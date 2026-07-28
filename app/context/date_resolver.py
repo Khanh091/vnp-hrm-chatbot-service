@@ -1,6 +1,8 @@
 import re
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+
+import dateparser
 
 from app.routing.schemas import ResolvedDateRange
 
@@ -33,7 +35,27 @@ class DateResolver:
             self._relative_year(normalized, current_date),
             self._quarter(normalized, current_date),
         )
-        return next((item for item in resolvers if item is not None), None)
+        deterministic = next(
+            (item for item in resolvers if item is not None), None
+        )
+        if deterministic is not None:
+            return deterministic
+        parsed = dateparser.parse(
+            normalized,
+            languages=["vi"],
+            settings={
+                "RELATIVE_BASE": datetime.combine(
+                    current_date, datetime.min.time()
+                ),
+                "TIMEZONE": timezone,
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+            },
+        )
+        if parsed is None:
+            return None
+        value = parsed.date()
+        return self._result(value, value, text, "dateparser_fallback")
 
     @staticmethod
     def _result(

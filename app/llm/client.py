@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Protocol, TypeVar
 
 import httpx
@@ -16,6 +17,10 @@ class LlmClientError(RuntimeError):
 
 
 class LlmTimeoutError(LlmClientError):
+    pass
+
+
+class LlmRateLimitError(LlmClientError):
     pass
 
 
@@ -99,16 +104,13 @@ class GroqLlmClient:
         if settings.groq_api_key is None:
             raise ValueError("GROQ_API_KEY is required")
         self._model = settings.groq_chat_model
+        self._authorization = (
+            "Bearer " + settings.groq_api_key.get_secret_value()
+        )
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             base_url=str(settings.groq_base_url).rstrip("/"),
-            headers={
-                "Authorization": (
-                    "Bearer "
-                    + settings.groq_api_key.get_secret_value()
-                ),
-                "Content-Type": "application/json",
-            },
+            headers={"Content-Type": "application/json"},
             timeout=httpx.Timeout(settings.groq_timeout_seconds),
         )
 
@@ -133,26 +135,33 @@ class GroqLlmClient:
             "reasoning_effort": "none",
             "max_completion_tokens": 1024,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {
+                    "role": "system",
+                    "content": (
+                        system_prompt
+                        + "\n\nJSON Schema bắt buộc:\n"
+                        + json.dumps(response_schema, ensure_ascii=False)
+                    ),
+                },
                 {"role": "user", "content": user_prompt},
             ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema.__name__.lower(),
-                    "strict": False,
-                    "schema": response_schema,
-                },
-            },
+            "response_format": {"type": "json_object"},
         }
         try:
             response = await self._client.post(
                 "/chat/completions",
                 json=payload,
+                headers={"Authorization": self._authorization},
             )
             response.raise_for_status()
         except httpx.TimeoutException as error:
             raise LlmTimeoutError("Groq structured request timed out") from error
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 429:
+                raise LlmRateLimitError(
+                    "Groq rate limit exceeded"
+                ) from error
+            raise LlmClientError("Groq structured request failed") from error
         except httpx.HTTPError as error:
             raise LlmClientError("Groq structured request failed") from error
 
