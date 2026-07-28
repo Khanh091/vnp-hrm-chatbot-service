@@ -277,3 +277,55 @@ async def test_groq_client_uses_json_mode_without_reasoning() -> None:
     built_client = build_llm_client(settings)
     assert isinstance(built_client, GroqLlmClient)
     await built_client.close()
+
+
+@pytest.mark.asyncio
+async def test_groq_compound_omits_qwen_only_reasoning_effort() -> None:
+    captured_payload: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": QueryClassification(
+                                route_type=RouteType.STRUCTURED_QUERY,
+                                primary_domain=Domain.PROFILE,
+                                capability_hint="contact",
+                                confidence=0.99,
+                                reason_code="PROFILE_CONTACT",
+                            ).model_dump_json()
+                        }
+                    }
+                ]
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        base_url="https://groq.test/openai/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    settings = Settings.model_construct(
+        llm_provider="groq",
+        groq_base_url="https://groq.test/openai/v1",
+        groq_api_key=SecretStr("unit-test-secret"),
+        groq_chat_model="groq/compound",
+        groq_timeout_seconds=10.0,
+    )
+    client = GroqLlmClient(settings, client=http_client)
+    try:
+        await client.complete_structured(
+            system_prompt="system",
+            user_prompt="Email của tôi là gì?",
+            schema=QueryClassification,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert captured_payload["model"] == "groq/compound"
+    assert "reasoning_effort" not in captured_payload
+    assert captured_payload["tool_choice"] == "none"
+    assert captured_payload["response_format"] == {"type": "json_object"}

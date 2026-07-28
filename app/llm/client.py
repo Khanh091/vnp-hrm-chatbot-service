@@ -132,7 +132,6 @@ class GroqLlmClient:
         payload: dict[str, Any] = {
             "model": self._model,
             "temperature": 0.1,
-            "reasoning_effort": "none",
             "max_completion_tokens": 1024,
             "messages": [
                 {
@@ -147,6 +146,12 @@ class GroqLlmClient:
             ],
             "response_format": {"type": "json_object"},
         }
+        if self._model.startswith("qwen/"):
+            payload["reasoning_effort"] = "none"
+        if self._model.startswith("groq/compound"):
+            # Classification and tool selection never need Groq's web/code
+            # tools; disabling them prevents data egress and extra latency.
+            payload["tool_choice"] = "none"
         try:
             response = await self._client.post(
                 "/chat/completions",
