@@ -1,0 +1,51 @@
+- query: "Tôi còn bao nhiêu ngày phép?"
+  expected_tool: leave_get_balance
+  expected_arguments:
+    year: 2026
+  expected_result_type: answer
+- query: "Năm nay tôi đã dùng bao nhiêu ngày phép?"
+  expected_tool: leave_get_used
+  expected_arguments:
+    year: 2026
+  expected_result_type: answer
+- query: "Liệt kê các đơn nghỉ tháng trước"
+  expected_tool: leave_get_history
+  expected_arguments:
+    date_from: "2026-06-01"
+    date_to: "2026-06-30"
+  expected_result_type: answer
+- query: "Đơn nghỉ số 18 đã duyệt chưa?"
+  expected_tool: leave_get_request_status
+  expected_arguments:
+    request_id: 18
+  expected_result_type: answer
+- query: "Chấm công hôm qua của tôi thế nào?"
+  expected_tool: attendance_get_daily
+  expected_arguments:
+    date: "2026-07-26"
+  expected_result_type: answer
+- query: "Tháng này tôi đi muộn bao nhiêu lần?"
+  expected_tool: attendance_get_late_summary
+  expected_arguments:
+    date_from: "2026-07-01"
+    date_to: "2026-07-31"
+  expected_result_type: answer
+- query: "Cho tôi xem hồ sơ nhân sự tổng quan"
+  expected_tool: profile_get_summary
+  expected_arguments: {}
+  expected_result_type: answer
+- query: "Tạo đơn nghỉ ngày mai"
+  expected_tool: leave_create_request
+  expected_arguments:
+    date_from: "2026-07-28"
+    date_to: "2026-07-28"
+  expected_result_type: clarification_required
+- query: "Hủy đơn nghỉ LEAVE-00123"
+  expected_tool: leave_cancel_request
+  expected_arguments:
+    request_id: 123
+  expected_result_type: confirmation_required
+- query: "Thời tiết hôm nay thế nào?"
+  expected_tool:
+  expected_arguments: {}
+  expected_result_type: unsupported

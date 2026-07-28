@@ -1,6 +1,18 @@
-from enum import Enum
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from datetime import date
+from enum import Enum
+from typing import Any
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from app.tools.definitions import RiskLevel
 
 
 class RouteType(str, Enum):
@@ -157,3 +169,96 @@ class RoutingDebugResult(BaseModel):
     classification: QueryClassification
     candidates: list[ToolCandidate]
     timings: RoutingStageTimings
+
+
+class ToolSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    selected_tool: str | None = Field(default=None, max_length=64)
+    confidence: float = Field(ge=0.0, le=1.0)
+    extracted_arguments: dict[str, Any] = Field(default_factory=dict)
+    missing_arguments: list[str] = Field(default_factory=list)
+    ambiguous_arguments: list[str] = Field(default_factory=list)
+    requires_clarification: bool = False
+    clarification_question: str | None = Field(default=None, max_length=300)
+    reason_code: str | None = Field(
+        default=None,
+        max_length=80,
+        pattern=r"^[A-Z][A-Z0-9_]*$",
+    )
+
+    @model_validator(mode="after")
+    def clarification_fields_are_consistent(self) -> ToolSelection:
+        if self.requires_clarification and not self.clarification_question:
+            raise ValueError("clarification_question is required")
+        if not self.requires_clarification and self.clarification_question:
+            raise ValueError("clarification_question must be null")
+        return self
+
+
+class ToolCandidateContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_name: str
+    domain: Domain
+    capability: str
+    operation: Operation
+    route_type: RouteType
+    risk_level: RiskLevel
+    description: str
+    required_arguments: list[str]
+    optional_arguments: list[str]
+    examples: list[str]
+    negative_examples: list[str]
+    supported_scopes: list[SubjectScope]
+    requires_confirmation: bool
+    score: float = Field(ge=-1.0, le=1.0)
+
+
+class ConversationContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    conversation_id: str
+    pending_tool: str | None = None
+    collected_arguments: dict[str, Any] = Field(default_factory=dict)
+    last_user_message: str | None = None
+
+
+class ToolSelectorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    original_query: str
+    normalized_query: str
+    classification: QueryClassification
+    candidates: list[ToolCandidateContext]
+    conversation_context: ConversationContext | None = None
+    current_date: date
+    timezone: str
+
+
+class ResolvedDateRange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    date_from: date
+    date_to: date
+    source_expression: str
+    resolution_type: str
+
+
+class ValidationIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    field: str | None = None
+    message: str
+
+
+class ToolValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    valid: bool
+    can_execute: bool
+    requires_clarification: bool
+    requires_confirmation: bool
+    normalized_arguments: dict[str, Any] = Field(default_factory=dict)
+    errors: list[ValidationIssue] = Field(default_factory=list)

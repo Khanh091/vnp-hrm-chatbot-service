@@ -21,6 +21,12 @@ class Base(DeclarativeBase):
 
 class Database:
     def __init__(self, database_url: str) -> None:
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace(
+                "postgresql://",
+                "postgresql+psycopg://",
+                1,
+            )
         self.engine: AsyncEngine = create_async_engine(
             database_url,
             pool_pre_ping=True,

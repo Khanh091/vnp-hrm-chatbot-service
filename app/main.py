@@ -13,22 +13,36 @@ from starlette.responses import Response
 
 from app.api.routers.chat import router as chat_router
 from app.api.routers.debug_routing import router as debug_routing_router
+from app.api.routers.debug_tool_selection import (
+    router as debug_tool_selection_router,
+)
 from app.api.routers.health import router as health_router
 from app.api.schemas.common import ErrorResponse, ResponseMeta
 from app.common.enums import ResponseCode
 from app.common.exceptions import AppError
 from app.config import Settings, get_settings
+from app.context.conversation import ConversationStore
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
-from app.llm.client import OllamaLlmClient
+from app.llm.client import (
+    GroqLlmClient,
+    OllamaLlmClient,
+    build_llm_client,
+)
+from app.orchestration.pipeline import ChatPipeline
 from app.persistence.database import Database
 from app.retrieval.embeddings import OllamaEmbeddingProvider
 from app.retrieval.vector_store import DatabasePgVectorStore
+from app.routing.argument_resolver import ArgumentResolver
 from app.routing.candidate_retriever import CandidateRetriever
 from app.routing.query_classifier import QueryClassifier
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.service import RoutingService
+from app.routing.tool_selector import ToolSelector
+from app.routing.validator import ToolSelectionValidator
 from app.tools import build_tool_registry
+from app.tools.executor import ToolExecutor
+from app.tools.response_formatter import ToolResponseFormatter
 
 logger = logging.getLogger("app.requests")
 
@@ -60,6 +74,7 @@ def create_app(
     settings: Settings | None = None,
     odoo_client: OdooClient | None = None,
     routing_service: RoutingService | None = None,
+    chat_pipeline: ChatPipeline | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
 
@@ -69,28 +84,45 @@ def create_app(
         application.state.odoo_client = odoo_client or OdooClient(
             resolved_settings,
         )
-        llm_client: OllamaLlmClient | None = None
+        llm_client: OllamaLlmClient | GroqLlmClient | None = None
         embedding_provider: OllamaEmbeddingProvider | None = None
         database: Database | None = None
+        if chat_pipeline is not None:
+            application.state.chat_pipeline = chat_pipeline
+        else:
+            registry = build_tool_registry()
+            llm_client = build_llm_client(resolved_settings)
+            embedding_provider = OllamaEmbeddingProvider(resolved_settings)
+            database = Database(resolved_settings.database_url)
+            resolved_routing = routing_service or RoutingService(
+                QueryNormalizer(),
+                QueryClassifier(llm_client),
+                CandidateRetriever(
+                    registry,
+                    embedding_provider,
+                    DatabasePgVectorStore(database),
+                ),
+                top_k=resolved_settings.tool_top_k,
+                fetch_k=resolved_settings.tool_fetch_k,
+                min_score=resolved_settings.tool_min_score,
+            )
+            application.state.chat_pipeline = ChatPipeline(
+                resolved_routing,
+                ToolSelector(llm_client, registry, resolved_settings),
+                ArgumentResolver(),
+                ToolSelectionValidator(registry, resolved_settings),
+                ToolExecutor(registry, application.state.odoo_client),
+                ToolResponseFormatter(),
+                ConversationStore(
+                    resolved_settings.pending_action_ttl_seconds
+                ),
+                registry,
+            )
         if resolved_settings.app_debug:
-            if routing_service is not None:
-                application.state.routing_service = routing_service
-            else:
-                llm_client = OllamaLlmClient(resolved_settings)
-                embedding_provider = OllamaEmbeddingProvider(resolved_settings)
-                database = Database(resolved_settings.database_url)
-                application.state.routing_service = RoutingService(
-                    QueryNormalizer(),
-                    QueryClassifier(llm_client),
-                    CandidateRetriever(
-                        build_tool_registry(),
-                        embedding_provider,
-                        DatabasePgVectorStore(database),
-                    ),
-                    top_k=resolved_settings.tool_top_k,
-                    fetch_k=resolved_settings.tool_fetch_k,
-                    min_score=resolved_settings.tool_min_score,
-                )
+            application.state.routing_service = (
+                routing_service
+                or application.state.chat_pipeline.routing_service
+            )
         try:
             yield
         finally:
@@ -196,6 +228,7 @@ def create_app(
     app.include_router(chat_router, prefix="/api/v1")
     if resolved_settings.app_debug:
         app.include_router(debug_routing_router, prefix="/api/v1")
+        app.include_router(debug_tool_selection_router, prefix="/api/v1")
 
     return app
 

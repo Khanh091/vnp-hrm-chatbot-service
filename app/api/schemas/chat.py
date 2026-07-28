@@ -1,12 +1,21 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.api.schemas.common import ApiResponse
+from app.api.schemas.common import ResponseMeta
+from app.orchestration.state import ChatResponseType, ChatStageTimings
 
 
 class UserContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    odoo_user_id: int = Field(gt=0)
+    odoo_user_id: int = Field(
+        gt=0,
+        description=(
+            "Development/proxy-only identifier; production ingress must "
+            "authenticate the Odoo proxy before trusting it."
+        ),
+    )
 
 
 class ChatRequest(BaseModel):
@@ -25,19 +34,12 @@ class ChatRequest(BaseModel):
         return value
 
 
-class ValidatedUserContext(BaseModel):
-    user_id: int
-    employee_id: int
-    company_id: int
-    department_id: int | None
-    timezone: str
-    language: str
+class ChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-
-class ChatAcceptedData(BaseModel):
     conversation_id: str
-    answer: str
-    user_context: ValidatedUserContext
-
-
-ChatResponse = ApiResponse[ChatAcceptedData]
+    type: ChatResponseType
+    answer: str | None
+    data: dict[str, Any] | None
+    timings: ChatStageTimings
+    meta: ResponseMeta

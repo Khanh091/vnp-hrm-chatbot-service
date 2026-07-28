@@ -12,6 +12,7 @@ from app.tools.definitions import (
     ToolExecutionResult,
     ToolResponse,
     TrustedExecutionContext,
+    ValidatedToolExecution,
 )
 from app.tools.registry import ToolNotFoundError, ToolRegistry
 
@@ -22,6 +23,17 @@ class ToolExecutor:
     def __init__(self, registry: ToolRegistry, odoo_client: OdooClient) -> None:
         self._registry = registry
         self._odoo_client = odoo_client
+
+    async def execute_validated(
+        self,
+        execution: ValidatedToolExecution,
+    ) -> ToolExecutionResult:
+        return await self.execute(
+            execution.tool_name,
+            execution.arguments,
+            context=execution.trusted_context,
+            confirmed=execution.confirmation_granted,
+        )
 
     async def execute(
         self,

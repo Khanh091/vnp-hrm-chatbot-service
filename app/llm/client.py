@@ -37,6 +37,7 @@ class OllamaLlmClient:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._model = settings.ollama_chat_model
+        self._keep_alive = settings.ollama_keep_alive
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             base_url=str(settings.ollama_base_url).rstrip("/"),
@@ -62,6 +63,7 @@ class OllamaLlmClient:
             "model": self._model,
             "stream": False,
             "think": False,
+            "keep_alive": self._keep_alive,
             "format": response_schema,
             "options": {"temperature": 0},
             "messages": [
@@ -85,3 +87,88 @@ class OllamaLlmClient:
         if not isinstance(content, str):
             raise LlmClientError("Ollama returned non-text chat content")
         return parse_structured_output(content, schema)
+
+
+class GroqLlmClient:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        if settings.groq_api_key is None:
+            raise ValueError("GROQ_API_KEY is required")
+        self._model = settings.groq_chat_model
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(
+            base_url=str(settings.groq_base_url).rstrip("/"),
+            headers={
+                "Authorization": (
+                    "Bearer "
+                    + settings.groq_api_key.get_secret_value()
+                ),
+                "Content-Type": "application/json",
+            },
+            timeout=httpx.Timeout(settings.groq_timeout_seconds),
+        )
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def complete_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema: type[SchemaT],
+    ) -> SchemaT:
+        response_schema = schema.model_json_schema()
+        response_schema["required"] = list(
+            response_schema.get("properties", {})
+        )
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "temperature": 0.1,
+            "reasoning_effort": "none",
+            "max_completion_tokens": 1024,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.__name__.lower(),
+                    "strict": False,
+                    "schema": response_schema,
+                },
+            },
+        }
+        try:
+            response = await self._client.post(
+                "/chat/completions",
+                json=payload,
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as error:
+            raise LlmTimeoutError("Groq structured request timed out") from error
+        except httpx.HTTPError as error:
+            raise LlmClientError("Groq structured request failed") from error
+
+        try:
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
+        except (IndexError, KeyError, TypeError, ValueError) as error:
+            raise LlmClientError("Groq returned an invalid chat response") from error
+        if not isinstance(content, str):
+            raise LlmClientError("Groq returned non-text chat content")
+        return parse_structured_output(content, schema)
+
+
+def build_llm_client(
+    settings: Settings,
+) -> OllamaLlmClient | GroqLlmClient:
+    if settings.llm_provider == "groq":
+        return GroqLlmClient(settings)
+    return OllamaLlmClient(settings)

@@ -129,7 +129,21 @@ class TrustedExecutionContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     odoo_user_id: int = Field(gt=0)
+    employee_id: int | None = Field(default=None, gt=0)
+    company_id: int | None = Field(default=None, gt=0)
+    timezone: str = Field(default="Asia/Ho_Chi_Minh", min_length=1, max_length=64)
+    language: str | None = Field(default=None, max_length=32)
+    conversation_id: str = Field(default="unknown", min_length=1, max_length=128)
     request_id: str = Field(min_length=1, max_length=128)
+
+
+class ValidatedToolExecution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_name: str
+    arguments: dict[str, Any]
+    trusted_context: TrustedExecutionContext
+    confirmation_granted: bool = False
 
 
 class ToolResponse(RootModel[Any]):

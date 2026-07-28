@@ -11,7 +11,7 @@ import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict
 
 from app.config import get_settings
-from app.llm.client import OllamaLlmClient
+from app.llm.client import build_llm_client
 from app.persistence.database import Database
 from app.retrieval.embeddings import OllamaEmbeddingProvider
 from app.retrieval.vector_store import DatabasePgVectorStore
@@ -48,7 +48,7 @@ async def run(*, limit: int | None = None) -> int:
     if limit is not None:
         cases = cases[:limit]
     settings = get_settings()
-    llm = OllamaLlmClient(settings)
+    llm = build_llm_client(settings)
     embeddings = OllamaEmbeddingProvider(settings)
     database = Database(settings.database_url)
     service = RoutingService(
