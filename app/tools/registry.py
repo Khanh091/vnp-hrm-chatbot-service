@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 
+from app.routing.intent_tool_mapping import tool_names_for_intent
 from app.routing.taxonomy import (
     Intent,
     QueryRoute,
@@ -76,10 +77,15 @@ class ToolRegistry:
         enabled: bool = True,
     ) -> tuple[ToolDefinition, ...]:
         """Return the deterministic runtime allowlist before vector retrieval."""
+        intent_tools = (
+            frozenset(tool_names_for_intent(intent))
+            if intent is not None
+            else None
+        )
         return tuple(
             tool
             for tool in self._tools.values()
-            if (intent is None or tool.intent is intent)
+            if (intent_tools is None or tool.name in intent_tools)
             and (domain is None or tool.domain.value == domain)
             and (route is None or tool.route is route)
             and (operation is None or tool.query_operation is operation)

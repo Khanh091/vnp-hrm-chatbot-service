@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from app.api.schemas.chat import ChatRequest
 from app.orchestration.graph import build_chat_graph
+from app.orchestration.nodes.common import routing_context_value
 from app.orchestration.routes import (
     route_after_selection,
     route_after_turn_detection,
@@ -119,3 +120,28 @@ def test_leave_workflow_asks_one_field_in_configured_order() -> None:
         )
         == "date_from"
     )
+
+
+def test_clarification_uses_persisted_routing_context() -> None:
+    persisted = {
+        "route": "data_query",
+        "domain": "attendance",
+        "intent": "attendance.daily",
+        "operation": "read",
+        "scope": "self",
+        "confidence": 0.95,
+    }
+    state = {
+        "turn_type": TurnType.CLARIFICATION_ANSWER,
+        "classification": {"domain": None, "operation": "none"},
+        "candidate_contexts": [],
+        "workflow_data": {
+            "classification": persisted,
+            "candidate_contexts": [{"tool_name": "attendance_get_daily"}],
+        },
+    }
+
+    assert routing_context_value(state, "classification") == persisted
+    assert routing_context_value(state, "candidate_contexts") == [
+        {"tool_name": "attendance_get_daily"}
+    ]

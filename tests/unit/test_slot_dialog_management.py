@@ -11,6 +11,9 @@ from app.context.date_resolver import (
 from app.context.dialog_manager import DialogTurnManager
 from app.context.entities import ExtractedEntities
 from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
+from app.orchestration.nodes.merge_clarification import (
+    merge_workflow_metadata,
+)
 from app.orchestration.state import TurnType
 from app.workflows import SlotManager, build_workflow_registry
 
@@ -44,6 +47,13 @@ def test_create_leave_slots_are_filled_one_at_a_time() -> None:
     assert manager.get_next_slot(workflow, state) == "leave_type_id"
 
     state = manager.merge(workflow, state, {"leave_type_id": 5})
+    assert manager.get_next_slot(workflow, state) == "reason"
+
+    state = manager.merge(
+        workflow,
+        state,
+        {"reason": "Việc cá nhân"},
+    )
     assert manager.get_next_slot(workflow, state) is None
     assert state.missing == []
     assert state.issues == []
@@ -87,20 +97,23 @@ def test_clear_new_intent_overrides_pending_date_slot() -> None:
         manager.detect(
             message="Hôm qua tôi chấm công chưa",
             structured_clarification=None,
+            expected_field="date_from",
         )
-        is TurnType.NEW_QUERY
+        is TurnType.NEW_QUERY_OVERRIDE
     )
     assert (
         manager.detect(
             message="Phòng ban của tôi là gì",
             structured_clarification=None,
+            expected_field="date_from",
         )
-        is TurnType.NEW_QUERY
+        is TurnType.NEW_QUERY_OVERRIDE
     )
     assert (
         manager.detect(
             message="29/7/2026",
             structured_clarification=None,
+            expected_field="date_from",
         )
         is TurnType.CLARIFICATION_ANSWER
     )
@@ -155,3 +168,21 @@ def test_slot_manager_clear_removes_all_pending_values() -> None:
     assert cleared.values == {}
     assert cleared.missing == []
     assert cleared.ambiguous == []
+
+
+def test_leave_type_options_survive_later_reason_turn() -> None:
+    original = {
+        "clarification_options": [
+            {"value": 3, "label": "Không lương"},
+        ]
+    }
+
+    updated = merge_workflow_metadata(
+        original,
+        options=[],
+        slot_issues=[],
+    )
+
+    assert updated["clarification_options"] == [
+        {"value": 3, "label": "Không lương"},
+    ]

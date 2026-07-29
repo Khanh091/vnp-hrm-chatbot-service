@@ -192,6 +192,7 @@ async def _stream_events(
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
     result_holder: list[ChatPipelineResult] = []
     failed = False
+    answer_streamed = False
 
     async def produce() -> None:
         nonlocal failed
@@ -239,7 +240,18 @@ async def _stream_events(
             if graph_event is None:
                 event_task = None
                 break
-            public = _PUBLIC_GRAPH_EVENTS.get(str(graph_event.get("type")))
+            graph_event_type = str(graph_event.get("type"))
+            if graph_event_type in {
+                "answer_start",
+                "answer_delta",
+                "answer_done",
+            }:
+                answer_streamed = True
+                yield _sse(
+                    graph_event_type,
+                    cast(dict[str, Any], graph_event.get("data") or {}),
+                )
+            public = _PUBLIC_GRAPH_EVENTS.get(graph_event_type)
             if public is not None:
                 yield _status_event(*public)
             event_task = asyncio.create_task(queue.get())
@@ -270,8 +282,9 @@ async def _stream_events(
         )
         return
     result = result_holder[0]
-    event, payload = _public_final(result)
-    yield _sse(event, payload)
+    if not (answer_streamed and result.type.value == "answer"):
+        event, payload = _public_final(result)
+        yield _sse(event, payload)
     yield _sse(
         "done",
         {

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.answers.context_builder import AnswerContextBuilder
+from app.answers.service import FinalAnswerService
 from app.config import Settings
 from app.context.conversation_service import ConversationService
 from app.context.date_resolver import DateResolver
@@ -35,6 +37,8 @@ class GraphContext:
     authorization_policy: AuthorizationPolicyService
     tool_executor: ToolExecutor
     response_formatter: ToolResponseFormatter
+    answer_context_builder: AnswerContextBuilder
+    final_answer_service: FinalAnswerService
     conversation_service: ConversationService
     pending_action_service: PendingActionService
     workflow_registry: WorkflowRegistry

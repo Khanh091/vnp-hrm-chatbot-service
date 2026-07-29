@@ -23,12 +23,20 @@ Quy tắc:
 - reason_code là mã UPPER_SNAKE_CASE ngắn, không giải thích dài.
 
 Phân biệt profile:
-- tên, mã nhân viên, mã nhân sự, ngày sinh, hồ sơ tổng quan => profile.summary
+- tên, ngày sinh, hồ sơ tổng quan => profile.summary
+- mã nhân viên, mã nhân sự => profile.employee_code
 - email, điện thoại, thông tin liên hệ => profile.contact
-- công ty, đơn vị, phòng ban, chức danh, vị trí, quản lý => profile.employment
+- chức danh, vị trí công việc => profile.job_title
+- phòng ban, thuộc phòng nào => profile.department
+- công ty, đơn vị công tác => profile.work_unit
+- quản lý trực tiếp, cấp trên, sếp trực tiếp => profile.manager
 - học vấn, đào tạo, bằng cấp => profile.education
 - chứng chỉ => profile.certificates; kỹ năng => profile.skills
-- quá trình công tác => profile.history; hợp đồng => profile.contracts
+- quá trình công tác => profile.work_history
+- lịch sử bổ nhiệm => profile.appointment_history
+- lịch sử điều chuyển => profile.transfer_history
+- hợp đồng tổng quan/lịch sử => profile.contracts
+- ngày hết hạn/kết thúc hợp đồng => profile.contract_expiry
 
 Phân biệt leave:
 - còn lại => leave.balance; đã dùng => leave.used; danh sách đơn => leave.history
@@ -36,18 +44,28 @@ Phân biệt leave:
 - loại nghỉ => leave.types; tạo/sửa/hủy => leave.create/leave.update/leave.cancel
 
 Phân biệt attendance:
-- một ngày/giờ vào ra => attendance.daily; từng bản ghi => attendance.history
-- tổng hợp kỳ => attendance.monthly_summary; đi muộn => attendance.late_summary
-- thiếu chấm vào/ra => attendance.missing_punch
-- giải thích thiếu công => attendance.missing_work_context
+- một ngày/chấm công chưa => attendance.daily
+- giờ vào => attendance.check_in; giờ ra => attendance.check_out
+- số giờ làm trong ngày => attendance.worked_hours
+- tổng hợp tháng => attendance.monthly
+- giờ làm thêm => attendance.overtime_hours
+- số lần/ngày đi muộn => attendance.late_count
+- số lần thiếu chấm vào/ra => attendance.missing_punch_count
+- số ngày công thực tế => attendance.actual_work_days
+- từng bản ghi/lịch sử chấm công => attendance.history
+- giải thích thiếu công => attendance.missing_work_explanation
 
 Ví dụ:
-- "mã nhân sự của tôi là gì" => data_query, profile, profile.summary, read, self
-- "phòng ban của tôi" => data_query, profile, profile.employment, read, self
+- "mã nhân sự của tôi là gì" => data_query, profile, profile.employee_code, read, self
+- "phòng ban của tôi" => data_query, profile, profile.department, read, self
+- "cấp trên của tôi" => data_query, profile, profile.manager, read, self
+- "hợp đồng bao giờ hết hạn" => data_query, profile, profile.contract_expiry, read, self
 - "trình độ học vấn của tôi" => data_query, profile, profile.education, read, self
 - "tôi còn bao nhiêu ngày phép" => data_query, leave, leave.balance, read, self
 - "tạo đơn nghỉ phép" => task, leave, leave.create, create, self
 - "hôm qua tôi chấm công chưa" => data_query, attendance, attendance.daily, read, self
+- "số ngày đi muộn của tôi" => data_query, attendance, attendance.late_count, read, self
+- "lịch sử chấm công" => data_query, attendance, attendance.history, read, self
 """.strip()
 
 

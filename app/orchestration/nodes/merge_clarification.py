@@ -14,6 +14,18 @@ from app.tools.definitions import TrustedExecutionContext, ValidatedToolExecutio
 from app.workflows.slot_manager import SlotState
 
 
+def merge_workflow_metadata(
+    current: dict[str, Any],
+    *,
+    options: list[dict[str, Any]],
+    slot_issues: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updated = {**current, "slot_issues": slot_issues}
+    if options:
+        updated["clarification_options"] = options
+    return updated
+
+
 async def merge_clarification_node(
     state: ChatGraphState, runtime: Runtime[GraphContext]
 ) -> dict[str, object]:
@@ -228,17 +240,24 @@ async def merge_clarification_node(
         started=started,
         data={"field": field, "resolved": resolved},
     )
+    updated_workflow_data = merge_workflow_metadata(
+        state.get("workflow_data", {}),
+        options=options,
+        slot_issues=slot_issues,
+    )
     update.update(
         {
+            "classification": updated_workflow_data.get(
+                "classification", state.get("classification", {})
+            ),
+            "candidate_contexts": updated_workflow_data.get(
+                "candidate_contexts", state.get("candidate_contexts", [])
+            ),
             "selection": selection.model_dump(mode="json"),
             "collected_arguments": arguments,
             "missing_arguments": missing,
             "ambiguous_arguments": ambiguous,
-            "workflow_data": {
-                **state.get("workflow_data", {}),
-                "clarification_options": options,
-                "slot_issues": slot_issues,
-            },
+            "workflow_data": updated_workflow_data,
         }
     )
     return update

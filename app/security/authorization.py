@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.context.entities import ResolvedSubject
+from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import SecurityValidationResult, ValidationIssue
 from app.routing.schemas import ValidationIssueCategory as IssueCategory
 from app.routing.taxonomy import Intent, Operation, SubjectScope
@@ -101,7 +102,7 @@ class AuthorizationPolicyService:
         if not tool.enabled:
             return self._deny("TOOL_NOT_ALLOWED")
         if (
-            tool.intent is not request.intent
+            not tool_supports_intent(tool.name, request.intent)
             or tool.query_operation is not request.operation
         ):
             return self._deny("TOOL_OPERATION_NOT_ALLOWED")

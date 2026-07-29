@@ -4,7 +4,14 @@ from typing import Any, cast
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.json import json_safe_dict
 from app.persistence.models.pending_action import PendingAction
+
+_CREATE_JSON_FIELDS = {
+    "validated_arguments",
+    "display_summary",
+    "result_summary",
+}
 
 
 class PendingActionRepository:
@@ -48,7 +55,12 @@ class PendingActionRepository:
         session: AsyncSession,
         **values: Any,
     ) -> PendingAction:
-        item = PendingAction(**values)
+        persisted_values = dict(values)
+        for field in _CREATE_JSON_FIELDS:
+            value = persisted_values.get(field)
+            if isinstance(value, dict):
+                persisted_values[field] = json_safe_dict(value)
+        item = PendingAction(**persisted_values)
         session.add(item)
         await session.flush()
         return item
@@ -63,6 +75,12 @@ class PendingActionRepository:
         to_status: str,
         values: dict[str, Any],
     ) -> PendingAction | None:
+        persisted_values = dict(values)
+        result_summary = persisted_values.get("result_summary")
+        if isinstance(result_summary, dict):
+            persisted_values["result_summary"] = json_safe_dict(
+                result_summary
+            )
         statement = (
             update(PendingAction)
             .where(
@@ -70,7 +88,7 @@ class PendingActionRepository:
                 PendingAction.odoo_user_id == odoo_user_id,
                 PendingAction.status.in_(from_statuses),
             )
-            .values(status=to_status, **values)
+            .values(status=to_status, **persisted_values)
             .returning(PendingAction)
         )
         result = await session.execute(statement)

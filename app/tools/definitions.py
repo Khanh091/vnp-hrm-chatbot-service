@@ -116,7 +116,7 @@ class LeavePeriodArguments(DateRangeArguments):
 
 
 class LeaveCommandArguments(LeavePeriodArguments):
-    reason: str | None = Field(default=None, min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 

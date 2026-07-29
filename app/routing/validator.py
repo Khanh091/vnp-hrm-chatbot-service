@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.routing.argument_resolver import ArgumentResolution
+from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import (
     ArgumentValidationResult,
     QueryClassification,
@@ -95,7 +96,10 @@ class ToolSelectionValidator:
             )
         if (
             classification.intent is not None
-            and tool.intent is not classification.intent
+            and not tool_supports_intent(
+                tool.name,
+                classification.intent,
+            )
         ):
             issues.append(
                 self._issue(

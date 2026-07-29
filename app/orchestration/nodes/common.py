@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.orchestration.state import ChatGraphState
+from app.orchestration.state import ChatGraphState, TurnType
 
 GraphEventSink = Callable[[dict[str, Any]], None]
 graph_event_sink: ContextVar[GraphEventSink | None] = ContextVar(
@@ -20,6 +20,12 @@ def set_graph_event_sink(sink: GraphEventSink) -> Token[GraphEventSink | None]:
 
 def reset_graph_event_sink(token: Token[GraphEventSink | None]) -> None:
     graph_event_sink.reset(token)
+
+
+def emit_graph_event(event: str, data: dict[str, Any]) -> None:
+    sink = graph_event_sink.get()
+    if sink is not None:
+        sink({"type": event, "data": data})
 
 
 def elapsed_ms(started: float) -> float:
@@ -67,3 +73,25 @@ def public_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
         "request_id",
     }
     return {key: value for key, value in arguments.items() if key not in hidden}
+
+
+def routing_context_value(
+    state: ChatGraphState,
+    field: str,
+) -> Any:
+    """Prefer persisted routing context while resuming clarification."""
+
+    persisted = state.get("workflow_data", {}).get(field)
+    turn_type = state.get("turn_type")
+    if (
+        turn_type
+        in {
+            TurnType.CLARIFICATION_ANSWER,
+            TurnType.CLARIFICATION_RETRY,
+            "clarification_answer",
+            "clarification_retry",
+        }
+        and persisted
+    ):
+        return persisted
+    return state.get(field) or persisted

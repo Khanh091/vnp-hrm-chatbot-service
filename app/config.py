@@ -40,12 +40,21 @@ class Settings(BaseSettings):
     groq_classifier_model: str | None = Field(default=None, min_length=1)
     groq_selector_model: str | None = Field(default=None, min_length=1)
     groq_response_model: str | None = Field(default=None, min_length=1)
+    groq_final_answer_model: str | None = Field(default=None, min_length=1)
     groq_timeout_seconds: float = Field(default=60, gt=0)
     groq_reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     groq_temperature: float = Field(default=0.1, ge=0, le=2)
     llm_max_retries: int = Field(default=1, ge=0, le=1)
     llm_max_retry_after_seconds: float = Field(default=3, ge=0, le=10)
     llm_structured_repair_attempts: int = Field(default=1, ge=0, le=1)
+    final_answer_temperature: float = Field(default=0.1, ge=0, le=2)
+    final_answer_max_tokens: int = Field(default=300, ge=32, le=2000)
+    max_final_answer_items: int = Field(default=20, ge=1, le=100)
+    max_final_answer_context_chars: int = Field(
+        default=12000,
+        ge=1000,
+        le=50000,
+    )
     tool_embedding_dimension: int = Field(
         default=DEFAULT_EMBEDDING_DIMENSION,
         gt=0,

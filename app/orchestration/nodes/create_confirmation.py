@@ -22,6 +22,8 @@ def _display_summary(arguments: dict[str, Any]) -> dict[str, Any]:
             else value
         )
         for key, value in summary.items()
+        if value is not None
+        and not (key == "request_unit" and value == "day")
     }
 
 

@@ -218,6 +218,72 @@ async def test_confirmed_write_renders_only_validated_path_argument() -> None:
 
 
 @pytest.mark.asyncio
+async def test_leave_create_requires_reason_before_odoo_call() -> None:
+    called = False
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200)
+
+    result = await run_with_handler(
+        handler,
+        "leave_create_request",
+        {
+            "date_from": "2026-07-30",
+            "date_to": "2026-08-02",
+            "leave_type_id": 3,
+            "request_unit": "day",
+            "idempotency_key": "create-without-reason",
+        },
+        confirmed=True,
+    )
+
+    assert result.error_code == "INVALID_ARGUMENTS"
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_confirmed_leave_create_matches_odoo_contract() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload == {
+            "date_from": "2026-07-30",
+            "date_to": "2026-08-02",
+            "leave_type_id": 3,
+            "request_unit": "day",
+            "half_day_period": None,
+            "time_from": None,
+            "time_to": None,
+            "reason": "Việc cá nhân",
+            "idempotency_key": "create-with-reason",
+            "odoo_user_id": 42,
+        }
+        return httpx.Response(
+            200,
+            content=envelope(
+                data={"request_id": 100, "state": "draft"},
+            ),
+        )
+
+    result = await run_with_handler(
+        handler,
+        "leave_create_request",
+        {
+            "date_from": "2026-07-30",
+            "date_to": "2026-08-02",
+            "leave_type_id": 3,
+            "request_unit": "day",
+            "reason": "Việc cá nhân",
+            "idempotency_key": "create-with-reason",
+        },
+        confirmed=True,
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
 async def test_odoo_business_error_becomes_typed_failure() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

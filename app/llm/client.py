@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any, Literal, Protocol, TypeVar
 
@@ -40,6 +41,19 @@ class StructuredOutputClient(Protocol):
         operation: str = "structured_completion",
         request_id: str | None = None,
     ) -> SchemaT: ...
+
+
+class TextStreamingClient(Protocol):
+    def stream_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        operation: str = "text_stream",
+        request_id: str | None = None,
+    ) -> AsyncIterator[str]: ...
 
 
 class OllamaLlmClient:
@@ -106,6 +120,62 @@ class OllamaLlmClient:
                 "Ollama returned non-text chat content"
             )
         return parse_structured_output(content, schema)
+
+    async def stream_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        operation: str = "text_stream",
+        request_id: str | None = None,
+    ) -> AsyncIterator[str]:
+        del operation, request_id
+        payload = {
+            "model": self._model,
+            "stream": True,
+            "think": False,
+            "keep_alive": self._keep_alive,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        try:
+            async with self._client.stream(
+                "POST",
+                "/api/chat",
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        body = json.loads(line)
+                        content = body.get("message", {}).get("content")
+                    except (TypeError, ValueError) as error:
+                        raise LlmStructuredOutputError(
+                            "Ollama returned an invalid text stream"
+                        ) from error
+                    if isinstance(content, str) and content:
+                        yield content
+        except httpx.TimeoutException as error:
+            raise LlmTimeoutError("Ollama text stream timed out") from error
+        except httpx.HTTPStatusError as error:
+            raise LlmProviderError(
+                "Ollama text stream request failed",
+                http_status=error.response.status_code,
+            ) from error
+        except httpx.HTTPError as error:
+            raise LlmConnectionError(
+                "Ollama text stream connection failed"
+            ) from error
 
 
 class GroqLlmClient:
@@ -249,6 +319,83 @@ class GroqLlmClient:
                 raise mapped from error.__cause__
             raise mapped from error
 
+    async def stream_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        operation: str = "text_stream",
+        request_id: str | None = None,
+    ) -> AsyncIterator[str]:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "temperature": temperature,
+            "max_completion_tokens": max_tokens,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        if self._model.startswith("qwen/"):
+            payload["reasoning_effort"] = self._reasoning_effort
+        started = perf_counter()
+        try:
+            async with self._client.stream(
+                "POST",
+                "/chat/completions",
+                json=payload,
+                headers={"Authorization": self._authorization},
+            ) as response:
+                if not response.is_success:
+                    await response.aread()
+                    raise self._map_http_error(response)
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    raw = line[5:].strip()
+                    if raw == "[DONE]":
+                        break
+                    try:
+                        body = json.loads(raw)
+                        content = body["choices"][0]["delta"].get("content")
+                    except (IndexError, KeyError, TypeError, ValueError) as error:
+                        raise LlmStructuredOutputError(
+                            "Groq returned an invalid text stream"
+                        ) from error
+                    if isinstance(content, str) and content:
+                        yield content
+        except httpx.TimeoutException as error:
+            timeout_error = LlmTimeoutError("Groq text stream timed out")
+            self._log_failure(
+                timeout_error,
+                operation=operation,
+                request_id=request_id,
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+            raise timeout_error from error
+        except httpx.HTTPError as error:
+            connection_error = LlmConnectionError(
+                "Groq text stream connection failed"
+            )
+            self._log_failure(
+                connection_error,
+                operation=operation,
+                request_id=request_id,
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+            raise connection_error from error
+        except LlmClientError as error:
+            self._log_failure(
+                error,
+                operation=operation,
+                request_id=request_id,
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+            raise
+
     async def _request_with_retry(
         self,
         payload: dict[str, Any],
@@ -391,13 +538,22 @@ class GroqLlmClient:
 def build_llm_client(
     settings: Settings,
     *,
-    purpose: Literal["classifier", "selector", "response"] = "classifier",
+    purpose: Literal[
+        "classifier",
+        "selector",
+        "response",
+        "final_answer",
+    ] = "classifier",
 ) -> OllamaLlmClient | GroqLlmClient:
     if settings.llm_provider == "groq":
         model = {
             "classifier": settings.groq_classifier_model,
             "selector": settings.groq_selector_model,
             "response": settings.groq_response_model,
+            "final_answer": (
+                settings.groq_final_answer_model
+                or settings.groq_response_model
+            ),
         }[purpose]
         return GroqLlmClient(
             settings,

@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 _HIGH_CONFIDENCE = 0.7
 
 
+class RoutingInvariantError(RuntimeError):
+    def __init__(self, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+
+
 class CandidateRetrievalOutcome(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -69,6 +75,10 @@ class CandidateRetriever:
         )
         if classification.intent is not None and len(direct_matches) == 1:
             tool = direct_matches[0]
+            self._enforce_operation_invariant(
+                classification.operation,
+                (tool,),
+            )
             return CandidateRetrievalOutcome(
                 candidates=[
                     ToolCandidate(
@@ -167,7 +177,10 @@ class CandidateRetriever:
                 break
 
         return CandidateRetrievalOutcome(
-            candidates=candidates,
+            candidates=self._validated_candidates(
+                classification.operation,
+                candidates,
+            ),
             embedding_ms=embedding_ms,
             vector_search_ms=vector_search_ms,
             fallback_reason=fallback_reason,
@@ -235,3 +248,34 @@ class CandidateRetriever:
         if operation is Operation.READ or operation is Operation.NONE:
             return ("get", "list", "check")
         return (operation.value,)
+
+    @staticmethod
+    def _enforce_operation_invariant(
+        operation: Operation,
+        tools: tuple[object, ...],
+    ) -> None:
+        if operation is not Operation.READ:
+            return
+        invalid = [
+            tool
+            for tool in tools
+            if getattr(tool, "query_operation", None) is not Operation.READ
+        ]
+        if invalid:
+            raise RoutingInvariantError(
+                "READ_QUERY_CONTAINS_WRITE_CANDIDATE"
+            )
+
+    @staticmethod
+    def _validated_candidates(
+        operation: Operation,
+        candidates: list[ToolCandidate],
+    ) -> list[ToolCandidate]:
+        if operation is Operation.READ and any(
+            candidate.operation is not Operation.READ
+            for candidate in candidates
+        ):
+            raise RoutingInvariantError(
+                "READ_QUERY_CONTAINS_WRITE_CANDIDATE"
+            )
+        return candidates

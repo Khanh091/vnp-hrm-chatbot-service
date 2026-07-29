@@ -13,6 +13,7 @@ from app.llm.prompts import (
 )
 from app.llm.structured_output import StructuredOutputError
 from app.routing.input_guardrail import InputGuardrail
+from app.routing.intent_refiner import refine_read_intent
 from app.routing.rules import infer_rule_hints
 from app.routing.schemas import NormalizedQuery, QueryClassification
 
@@ -67,6 +68,7 @@ class QueryClassifier:
                 reason_code=reason_code,
             ) from error
 
+        result = refine_read_intent(query.normalized_text, result)
         # A strong explicit write signal cannot safely be downgraded to a read.
         if (
             hints.operation_hint is not None

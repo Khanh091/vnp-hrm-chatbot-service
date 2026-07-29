@@ -17,7 +17,9 @@ def route_after_turn_detection(
 ]:
     routes = {
         TurnType.NEW_QUERY: "normalize_query",
+        TurnType.NEW_QUERY_OVERRIDE: "normalize_query",
         TurnType.CLARIFICATION_ANSWER: "merge_clarification",
+        TurnType.CLARIFICATION_RETRY: "merge_clarification",
         TurnType.CONFIRMATION_ACCEPT: "load_pending_action_confirm",
         TurnType.CONFIRMATION_CANCEL: "load_pending_action_cancel",
     }
@@ -41,6 +43,16 @@ def route_after_classification(
         "format_response"
         if state.get("response_type") is not None
         else "retrieve_candidates"
+    )
+
+
+def route_after_retrieval(
+    state: ChatGraphState,
+) -> Literal["select_tool", "format_response"]:
+    return (
+        "format_response"
+        if state.get("response_type") is not None
+        else "select_tool"
     )
 
 

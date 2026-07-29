@@ -144,6 +144,14 @@ def test_security_guard_rejects_trusted_and_arbitrary_execution_fields() -> None
             ValidationIssueCategory.SECURITY,
             "Yêu cầu bị từ chối vì lý do an toàn.",
         ),
+        (
+            "INVALID_LEAVE_DATE_RANGE",
+            ValidationIssueCategory.BUSINESS,
+            (
+                "Khoảng ngày nghỉ không có thời gian làm việc hợp lệ. "
+                "Vui lòng kiểm tra lịch làm việc hoặc chọn khoảng ngày khác."
+            ),
+        ),
     ],
 )
 def test_error_categories_have_distinct_public_messages(

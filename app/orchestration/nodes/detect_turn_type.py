@@ -24,9 +24,12 @@ async def detect_turn_type_node(
         turn_type = runtime.context.dialog_turn_manager.detect(
             message=state.get("user_message"),
             structured_clarification=state.get("clarification"),
+            expected_field=state.get("workflow_data", {}).get(
+                "current_field"
+            ),
         )
-        if turn_type is TurnType.NEW_QUERY:
-            await runtime.context.conversation_service.clear_workflow(
+        if turn_type is TurnType.NEW_QUERY_OVERRIDE:
+            await runtime.context.conversation_service.clear_active_workflow(
                 state["conversation_id"],
                 int(state["trusted_context"]["odoo_user_id"]),
             )
@@ -41,7 +44,7 @@ async def detect_turn_type_node(
     )
     update["turn_type"] = turn_type
     if (
-        turn_type is TurnType.NEW_QUERY
+        turn_type is TurnType.NEW_QUERY_OVERRIDE
         and state.get("conversation_status")
         == ConversationStatus.AWAITING_CLARIFICATION.value
     ):

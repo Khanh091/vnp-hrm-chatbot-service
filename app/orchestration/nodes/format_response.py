@@ -1,11 +1,17 @@
 from time import perf_counter
+from uuid import uuid4
 
 from langgraph.runtime import Runtime
 
 from app.common.error_messages import category_for_error, public_error_message
 from app.orchestration.context import GraphContext
-from app.orchestration.nodes.common import stage_update
+from app.orchestration.nodes.common import (
+    emit_graph_event,
+    routing_context_value,
+    stage_update,
+)
 from app.orchestration.state import ChatGraphState, ChatResponseType
+from app.routing.schemas import QueryClassification
 from app.tools.definitions import ToolExecutionResult
 
 _WRITE_SUCCESS = {
@@ -51,12 +57,57 @@ async def format_response_node(
         }
     else:
         response_type = ChatResponseType.ANSWER
-        text = _WRITE_SUCCESS.get(
-            result.tool_name,
-            runtime.context.response_formatter.format(
-                result.tool_name, result
-            ),
-        )
+        write_text = _WRITE_SUCCESS.get(result.tool_name)
+        if write_text is not None:
+            text = write_text
+        else:
+            fallback_text = runtime.context.response_formatter.format(
+                result.tool_name,
+                result,
+            )
+            try:
+                classification = QueryClassification.model_validate(
+                    routing_context_value(state, "classification")
+                )
+                trusted = state["trusted_context"]
+                context = runtime.context.answer_context_builder.build(
+                    original_query=(
+                        str(
+                            state.get("workflow_data", {}).get(
+                                "original_query"
+                            )
+                            or state.get("user_message")
+                            or ""
+                        )
+                    ),
+                    classification=classification,
+                    tool_name=result.tool_name,
+                    tool_result=result,
+                    locale=str(trusted.get("language") or "vi_VN"),
+                    timezone=str(trusted.get("timezone") or "Asia/Ho_Chi_Minh"),
+                )
+                message_id = str(uuid4())
+                emit_graph_event(
+                    "answer_start",
+                    {"message_id": message_id},
+                )
+                chunks: list[str] = []
+                async for chunk in runtime.context.final_answer_service.stream_answer(
+                    context,
+                    request_id=state["request_id"],
+                ):
+                    chunks.append(chunk)
+                    emit_graph_event(
+                        "answer_delta",
+                        {"message_id": message_id, "delta": chunk},
+                    )
+                text = "".join(chunks).strip() or fallback_text
+                emit_graph_event(
+                    "answer_done",
+                    {"message_id": message_id, "answer": text},
+                )
+            except (KeyError, TypeError, ValueError):
+                text = fallback_text
         data = {"tool_name": result.tool_name, "result": result.data}
     update = stage_update(
         state,

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 from uuid import uuid4
 
 import pytest
@@ -137,7 +138,7 @@ async def test_slot_filling_resumes_after_database_restart() -> None:
             conversation,
             status=ConversationStatus.AWAITING_CLARIFICATION,
             pending_tool_name="leave_create_request",
-            collected_arguments={"date_from": "2026-07-29"},
+            collected_arguments={"date_from": date(2026, 7, 29)},
             missing_arguments=["date_to", "leave_type_id"],
             workflow_data={"current_field": "date_to"},
         )
@@ -151,6 +152,7 @@ async def test_slot_filling_resumes_after_database_restart() -> None:
             settings.conversation_state_ttl_seconds,
         )
         restored = await second_service.load_owned(conversation_id, user_id)
+        assert restored.collected_arguments["date_from"] == "2026-07-29"
         workflow = build_workflow_registry().get("leave_create_request")
         assert workflow is not None
         manager = SlotManager()

@@ -5,7 +5,7 @@ from langgraph.runtime import Runtime
 from app.context.conversation import ConversationStatus
 from app.context.entities import ResolvedSubject
 from app.orchestration.context import GraphContext
-from app.orchestration.nodes.common import stage_update
+from app.orchestration.nodes.common import routing_context_value, stage_update
 from app.orchestration.state import ChatGraphState
 from app.routing.schemas import QueryClassification
 from app.security.authorization import AuthorizationDecision, AuthorizationRequest
@@ -24,7 +24,7 @@ async def execute_read_tool_node(
     assert tool_name is not None
     trusted = TrustedExecutionContext.model_validate(state["trusted_context"])
     classification = QueryClassification.model_validate(
-        state["classification"]
+        routing_context_value(state, "classification")
     )
     assert classification.intent is not None
     decision = runtime.context.authorization_policy.authorize(
@@ -46,7 +46,9 @@ async def execute_read_tool_node(
         ),
         allowed_tools={
             str(candidate["tool_name"])
-            for candidate in state.get("candidate_contexts", [])
+            for candidate in (
+                routing_context_value(state, "candidate_contexts") or []
+            )
         },
     )
     if decision.allowed:

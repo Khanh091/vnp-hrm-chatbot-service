@@ -17,6 +17,19 @@ _MESSAGES = {
     "RECORD_NOT_FOUND": "Không tìm thấy dữ liệu được yêu cầu.",
     "ODOO_TIMEOUT": "Hệ thống HRM phản hồi chậm. Vui lòng thử lại.",
     "ODOO_CONNECTION_ERROR": "Không thể kết nối đến hệ thống HRM lúc này.",
+    "INVALID_LEAVE_DATE_RANGE": (
+        "Khoảng ngày nghỉ không có thời gian làm việc hợp lệ. "
+        "Vui lòng kiểm tra lịch làm việc hoặc chọn khoảng ngày khác."
+    ),
+    "OVERLAPPING_LEAVE_REQUEST": (
+        "Khoảng ngày này trùng với một đơn nghỉ đã có."
+    ),
+    "INSUFFICIENT_LEAVE_BALANCE": (
+        "Số ngày phép còn lại không đủ cho yêu cầu này."
+    ),
+    "LEAVE_TYPE_NOT_FOUND": (
+        "Loại nghỉ không còn tồn tại hoặc không còn hiệu lực."
+    ),
 }
 
 _CATEGORY_DEFAULTS = {

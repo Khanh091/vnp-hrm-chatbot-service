@@ -5,7 +5,7 @@ from langgraph.runtime import Runtime
 from app.common.error_messages import public_error_message
 from app.context.conversation import ConversationStatus
 from app.orchestration.context import GraphContext
-from app.orchestration.nodes.common import stage_update
+from app.orchestration.nodes.common import routing_context_value, stage_update
 from app.orchestration.state import (
     ChatGraphState,
     ChatResponseType,
@@ -32,12 +32,8 @@ async def validate_selection_node(
             "Không còn ngữ cảnh tool hợp lệ.",
         )
     workflow_data = state.get("workflow_data", {})
-    classification_data = state.get("classification") or workflow_data.get(
-        "classification"
-    )
-    contexts_data = state.get("candidate_contexts") or workflow_data.get(
-        "candidate_contexts", []
-    )
+    classification_data = routing_context_value(state, "classification")
+    contexts_data = routing_context_value(state, "candidate_contexts") or []
     if not classification_data or not contexts_data:
         return _terminal_error(
             state,

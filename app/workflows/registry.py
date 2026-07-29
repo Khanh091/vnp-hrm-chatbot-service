@@ -70,7 +70,6 @@ def build_workflow_registry() -> WorkflowRegistry:
         "business.reason",
         4,
         "Bạn muốn ghi lý do nghỉ là gì?",
-        required=False,
     )
     request_id = _slot(
         "request_id",

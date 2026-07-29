@@ -50,6 +50,10 @@ async def ask_clarification_node(
         or state.get("workflow_data", {}).get("candidate_contexts", []),
         "selection": state.get("selection")
         or state.get("workflow_data", {}).get("selection"),
+        "original_query": state.get("workflow_data", {}).get(
+            "original_query"
+        )
+        or state.get("user_message"),
         "current_field": field,
     }
     if field == "leave_type_id" and not workflow_data.get(

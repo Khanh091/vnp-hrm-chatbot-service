@@ -12,6 +12,12 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.answers import (
+    AnswerContextBuilder,
+    DeterministicAnswerFallback,
+    FinalAnswerService,
+    ToolResultSanitizer,
+)
 from app.api.routers.chat import router as chat_router
 from app.api.routers.conversations import router as conversations_router
 from app.api.routers.debug_routing import router as debug_routing_router
@@ -97,6 +103,7 @@ def create_app(
         )
         llm_client: OllamaLlmClient | GroqLlmClient | None = None
         selector_llm_client: OllamaLlmClient | GroqLlmClient | None = None
+        final_answer_llm_client: OllamaLlmClient | GroqLlmClient | None = None
         embedding_provider: OllamaEmbeddingProvider | None = None
         database: Database | None = None
         checkpoint_context: object | None = None
@@ -111,6 +118,10 @@ def create_app(
             selector_llm_client = build_llm_client(
                 resolved_settings,
                 purpose="selector",
+            )
+            final_answer_llm_client = build_llm_client(
+                resolved_settings,
+                purpose="final_answer",
             )
             embedding_provider = OllamaEmbeddingProvider(resolved_settings)
             database = Database(resolved_settings.database_url)
@@ -138,6 +149,20 @@ def create_app(
             validator = ToolSelectionValidator(registry, resolved_settings)
             executor = ToolExecutor(registry, application.state.odoo_client)
             formatter = ToolResponseFormatter()
+            answer_context_builder = AnswerContextBuilder(
+                ToolResultSanitizer(
+                    max_items=resolved_settings.max_final_answer_items,
+                    max_chars=(
+                        resolved_settings.max_final_answer_context_chars
+                    ),
+                )
+            )
+            final_answer_service = FinalAnswerService(
+                final_answer_llm_client,
+                DeterministicAnswerFallback(),
+                temperature=resolved_settings.final_answer_temperature,
+                max_tokens=resolved_settings.final_answer_max_tokens,
+            )
             graph_context = GraphContext(
                 query_normalizer=query_normalizer,
                 query_classifier=query_classifier,
@@ -152,6 +177,8 @@ def create_app(
                 authorization_policy=AuthorizationPolicyService(registry),
                 tool_executor=executor,
                 response_formatter=formatter,
+                answer_context_builder=answer_context_builder,
+                final_answer_service=final_answer_service,
                 conversation_service=ConversationService(
                     database,
                     resolved_settings.conversation_state_ttl_seconds,
@@ -218,6 +245,8 @@ def create_app(
                 await llm_client.close()
             if selector_llm_client is not None:
                 await selector_llm_client.close()
+            if final_answer_llm_client is not None:
+                await final_answer_llm_client.close()
             if embedding_provider is not None:
                 await embedding_provider.close()
             if database is not None:

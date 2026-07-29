@@ -8,6 +8,7 @@ from app.context.conversation import (
     MessageRole,
     MessageType,
 )
+from app.context.workflow_state import clear_active_workflow
 from app.persistence.database import Database
 from app.persistence.models.conversation import Conversation
 from app.persistence.repositories import (
@@ -55,12 +56,7 @@ class ConversationService:
                 ConversationStatus.AWAITING_CONFIRMATION.value,
             }:
                 item.status = ConversationStatus.EXPIRED.value
-                item.active_workflow = None
-                item.pending_tool_name = None
-                item.collected_arguments = {}
-                item.missing_arguments = []
-                item.ambiguous_arguments = []
-                item.workflow_data = {}
+                clear_active_workflow(item)
                 await session.flush()
                 expired = True
             else:
@@ -90,6 +86,11 @@ class ConversationService:
         ambiguous_arguments: list[str] | None = None,
         workflow_data: dict[str, Any] | None = None,
     ) -> None:
+        if status not in {
+            ConversationStatus.AWAITING_CLARIFICATION,
+            ConversationStatus.AWAITING_CONFIRMATION,
+        } and (pending_tool_name is not None or missing_arguments):
+            raise ConversationStateError("INVALID_CONVERSATION_STATE")
         now = datetime.now(timezone.utc)
         values: dict[str, Any] = {
             "status": status.value,
@@ -190,6 +191,20 @@ class ConversationService:
             missing_arguments=[],
             ambiguous_arguments=[],
             workflow_data={},
+        )
+
+    async def clear_active_workflow(
+        self,
+        conversation_id: str,
+        odoo_user_id: int,
+        *,
+        status: ConversationStatus = ConversationStatus.ACTIVE,
+    ) -> None:
+        """Clear all resumable workflow fields in one ownership-checked update."""
+        await self.clear_workflow(
+            conversation_id,
+            odoo_user_id,
+            status=status,
         )
 
     @staticmethod

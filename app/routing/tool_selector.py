@@ -7,6 +7,7 @@ from app.llm.prompts.tool_selector import (
     build_tool_selector_prompt,
 )
 from app.llm.structured_output import StructuredOutputError
+from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import (
     RouteType,
     SubjectScope,
@@ -63,7 +64,10 @@ class ToolSelector:
             tool = self._registry.get(candidate.tool_name)
             if (
                 request.classification.intent is not None
-                and tool.intent is request.classification.intent
+                and tool_supports_intent(
+                    tool.name,
+                    request.classification.intent,
+                )
                 and tool.query_operation is request.classification.operation
             ):
                 return ToolSelection(
