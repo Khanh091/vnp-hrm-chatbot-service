@@ -33,7 +33,28 @@ Phân biệt profile:
 
 
 def build_tool_selector_prompt(request: ToolSelectorRequest) -> str:
+    compact = {
+        "query": request.normalized_query,
+        "route": request.classification.route.value,
+        "intent": (
+            request.classification.intent.value
+            if request.classification.intent
+            else None
+        ),
+        "operation": request.classification.operation.value,
+        "scope": request.classification.scope.value,
+        "candidate_tools": [
+            {
+                "name": candidate.tool_name,
+                "purpose": candidate.description,
+                "supported_intent": candidate.capability,
+                "required_arguments": candidate.required_arguments,
+                "optional_arguments": candidate.optional_arguments,
+            }
+            for candidate in request.candidates[:3]
+        ],
+    }
     return "Chọn tool cho request sau:\n" + json.dumps(
-        request.model_dump(mode="json"),
+        compact,
         ensure_ascii=False,
     )

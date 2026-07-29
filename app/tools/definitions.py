@@ -6,6 +6,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
+from app.routing.taxonomy import Intent, QueryRoute
+from app.routing.taxonomy import Operation as QueryOperation
+
 
 class Domain(str, Enum):
     PROFILE = "profile"
@@ -110,7 +113,7 @@ class LeavePeriodArguments(DateRangeArguments):
 
 
 class LeaveCommandArguments(LeavePeriodArguments):
-    reason: str = Field(min_length=1, max_length=2000)
+    reason: str | None = Field(default=None, min_length=1, max_length=2000)
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
@@ -156,6 +159,8 @@ class ToolDefinition(BaseModel):
     name: str
     domain: Domain
     capability: str
+    intent: Intent | None = None
+    route: QueryRoute | None = None
     operation: Operation
     route_type: RouteType
     risk_level: RiskLevel
@@ -172,6 +177,42 @@ class ToolDefinition(BaseModel):
     version: str = "1.0"
     path_arguments: tuple[str, ...] = ()
     sensitive: bool = False
+
+    @model_validator(mode="after")
+    def derive_routing_metadata(self) -> ToolDefinition:
+        intent_value = {
+            "leave.request.create": Intent.LEAVE_CREATE,
+            "leave.request.update": Intent.LEAVE_UPDATE,
+            "leave.request.cancel": Intent.LEAVE_CANCEL,
+            "attendance.missing_punch_summary": Intent.ATTENDANCE_MISSING_PUNCH,
+        }.get(self.capability)
+        if intent_value is None:
+            try:
+                intent_value = Intent(self.capability)
+            except ValueError as error:
+                raise ValueError(
+                    f"tool capability has no registered intent: {self.capability}"
+                ) from error
+        expected_route = (
+            QueryRoute.TASK
+            if self.route_type is RouteType.COMMAND
+            else QueryRoute.DATA_QUERY
+        )
+        if self.intent is not None and self.intent is not intent_value:
+            raise ValueError("tool intent does not match capability")
+        if self.route is not None and self.route is not expected_route:
+            raise ValueError("tool query route does not match route_type")
+        object.__setattr__(self, "intent", intent_value)
+        object.__setattr__(self, "route", expected_route)
+        return self
+
+    @property
+    def query_operation(self) -> QueryOperation:
+        return {
+            Operation.CREATE: QueryOperation.CREATE,
+            Operation.UPDATE: QueryOperation.UPDATE,
+            Operation.CANCEL: QueryOperation.CANCEL,
+        }.get(self.operation, QueryOperation.READ)
 
 
 class ToolExecutionResult(BaseModel):

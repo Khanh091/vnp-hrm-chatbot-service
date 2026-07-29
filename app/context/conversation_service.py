@@ -55,6 +55,12 @@ class ConversationService:
                 ConversationStatus.AWAITING_CONFIRMATION.value,
             }:
                 item.status = ConversationStatus.EXPIRED.value
+                item.active_workflow = None
+                item.pending_tool_name = None
+                item.collected_arguments = {}
+                item.missing_arguments = []
+                item.ambiguous_arguments = []
+                item.workflow_data = {}
                 await session.flush()
                 expired = True
             else:
@@ -87,6 +93,11 @@ class ConversationService:
         now = datetime.now(timezone.utc)
         values: dict[str, Any] = {
             "status": status.value,
+            "active_workflow": (
+                pending_tool_name
+                if status is ConversationStatus.AWAITING_CLARIFICATION
+                else None
+            ),
             "pending_tool_name": pending_tool_name,
             "collected_arguments": collected_arguments or {},
             "missing_arguments": missing_arguments or [],
@@ -162,6 +173,24 @@ class ConversationService:
     ) -> None:
         item = await self.load_owned(conversation_id, odoo_user_id)
         await self.update(item, status=ConversationStatus.CANCELLED)
+
+    async def clear_workflow(
+        self,
+        conversation_id: str,
+        odoo_user_id: int,
+        *,
+        status: ConversationStatus = ConversationStatus.ACTIVE,
+    ) -> None:
+        item = await self.load_owned(conversation_id, odoo_user_id)
+        await self.update(
+            item,
+            status=status,
+            pending_tool_name=None,
+            collected_arguments={},
+            missing_arguments=[],
+            ambiguous_arguments=[],
+            workflow_data={},
+        )
 
     @staticmethod
     def _assert_owner(item: Conversation, odoo_user_id: int) -> None:

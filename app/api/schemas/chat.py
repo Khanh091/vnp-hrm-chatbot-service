@@ -29,20 +29,19 @@ class ChatAction(BaseModel):
     )
 
 
-class ChatClarification(BaseModel):
+class ClarificationAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     field: str = Field(min_length=1, max_length=128)
-    value: int | str
-    label: str = Field(min_length=1, max_length=500)
+    value: str | int | float | bool
+    label: str | None = Field(default=None, min_length=1, max_length=500)
 
     @field_validator("value")
     @classmethod
-    def validate_value(cls, value: int | str) -> int | str:
-        if isinstance(value, bool):
-            raise ValueError(
-                "clarification value must be an integer or non-empty string"
-            )
+    def validate_value(
+        cls,
+        value: str | int | float | bool,
+    ) -> str | int | float | bool:
         if isinstance(value, str):
             value = value.strip()
             if not value or len(value) > 500:
@@ -52,13 +51,16 @@ class ChatClarification(BaseModel):
         return value
 
 
+ChatClarification = ClarificationAnswer
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str | None = Field(default=None, min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
     action: ChatAction | None = None
-    clarification: ChatClarification | None = None
+    clarification: ClarificationAnswer | None = None
 
     @field_validator("message")
     @classmethod

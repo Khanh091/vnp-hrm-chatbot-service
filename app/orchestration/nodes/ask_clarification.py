@@ -6,6 +6,10 @@ from app.context.conversation import ConversationStatus
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState, ChatResponseType
+from app.tools.definitions import (
+    TrustedExecutionContext,
+    ValidatedToolExecution,
+)
 from app.workflows.clarification_policy import clarification_question
 
 
@@ -18,12 +22,22 @@ async def ask_clarification_node(
     workflow = runtime.context.workflow_registry.get(tool_name)
     missing = state.get("missing_arguments", [])
     ambiguous = state.get("ambiguous_arguments", [])
-    field = (
-        workflow.next_field(missing, ambiguous)
-        if workflow
-        else (ambiguous or missing or ["details"])[0]
-    )
-    question = clarification_question(field or "details")
+    if workflow:
+        slot_state = runtime.context.slot_manager.initialize(
+            workflow,
+            state.get("collected_arguments", {}),
+        ).model_copy(update={"ambiguous": ambiguous})
+        field = runtime.context.slot_manager.get_next_slot(
+            workflow,
+            slot_state,
+        )
+        slot = workflow.slot(field) if field else None
+        question = slot.prompt if slot else clarification_question("details")
+        if field in ambiguous and field in {"date", "date_from", "date_to"}:
+            question = "Bạn muốn chọn ngày nào và thuộc tuần nào?"
+    else:
+        field = (ambiguous or missing or ["details"])[0]
+        question = clarification_question(field)
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),
@@ -38,6 +52,27 @@ async def ask_clarification_node(
         or state.get("workflow_data", {}).get("selection"),
         "current_field": field,
     }
+    if field == "leave_type_id" and not workflow_data.get(
+        "clarification_options"
+    ):
+        lookup = await runtime.context.tool_executor.execute_validated(
+            ValidatedToolExecution(
+                tool_name="leave_list_types",
+                arguments={},
+                trusted_context=TrustedExecutionContext.model_validate(
+                    state["trusted_context"]
+                ),
+            )
+        )
+        if lookup.success:
+            workflow_data["clarification_options"] = [
+                option.model_dump(mode="json")
+                for option in (
+                    runtime.context.business_entity_resolver.leave_type_options(
+                        lookup.data
+                    )
+                )
+            ]
     await runtime.context.conversation_service.update(
         conversation,
         status=ConversationStatus.AWAITING_CLARIFICATION,

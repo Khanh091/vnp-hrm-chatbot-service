@@ -185,8 +185,8 @@ class ChatPipeline:
             low_confidence = any(
                 issue.code
                 in {
-                    "SELECTION_CONFIDENCE_TOO_LOW",
-                    "CANDIDATE_MARGIN_TOO_LOW",
+                    "LOW_CONFIDENCE",
+                    "ROUTING_AMBIGUOUS",
                 }
                 for issue in validation.errors
             )
@@ -200,7 +200,7 @@ class ChatPipeline:
                 (
                     "Bạn có thể nói rõ hơn mục tiêu cần tra cứu?"
                     if low_confidence
-                    else "Yêu cầu không vượt qua kiểm tra an toàn."
+                    else "Thông tin đầu vào chưa hợp lệ."
                 ),
                 {
                     "issues": [

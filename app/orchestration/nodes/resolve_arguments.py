@@ -35,6 +35,27 @@ async def resolve_arguments_node(
         timezone=str(trusted["timezone"]),
         conversation_arguments=state.get("collected_arguments"),
     )
+    workflow = runtime.context.workflow_registry.get(tool_name)
+    slot_issues: list[dict[str, object]] = []
+    if workflow is not None:
+        slot_state = runtime.context.slot_manager.initialize(
+            workflow,
+            resolution.arguments,
+        )
+        arguments = slot_state.values
+        missing = slot_state.missing
+        ambiguous = list(
+            dict.fromkeys(
+                [*resolution.ambiguous_arguments, *slot_state.ambiguous]
+            )
+        )
+        slot_issues = [
+            issue.model_dump(mode="json") for issue in slot_state.issues
+        ]
+    else:
+        arguments = resolution.arguments
+        missing = resolution.missing_arguments
+        ambiguous = resolution.ambiguous_arguments
     update = stage_update(
         state,
         event="arguments_resolved",
@@ -43,12 +64,13 @@ async def resolve_arguments_node(
     )
     update.update(
         {
-            "collected_arguments": resolution.arguments,
-            "missing_arguments": resolution.missing_arguments,
-            "ambiguous_arguments": resolution.ambiguous_arguments,
+            "collected_arguments": arguments,
+            "missing_arguments": missing,
+            "ambiguous_arguments": ambiguous,
             "workflow_data": {
                 **state.get("workflow_data", {}),
                 "transient_entities": resolution.transient_entities,
+                "slot_issues": slot_issues,
             },
         }
     )

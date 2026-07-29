@@ -17,6 +17,7 @@ _TRUSTED_FIELDS = {
     "conversation_id",
     "timezone",
 }
+_CONTROL_FIELDS = {"scope", "domain", "operation", "route_type"}
 _SERVER_FIELDS = {"idempotency_key"}
 _QUESTIONS = {
     "date": "Bạn muốn xem dữ liệu của ngày nào?",
@@ -63,24 +64,41 @@ class ArgumentResolver:
         rejected = sorted(_TRUSTED_FIELDS.intersection(arguments))
         for field in rejected:
             arguments.pop(field, None)
+        for field in _CONTROL_FIELDS:
+            arguments.pop(field, None)
 
+        schema_fields = tool.argument_schema.model_fields
         transient: dict[str, Any] = {}
         for field in ("leave_type_text", "employee_name", "department_name"):
             value = arguments.pop(field, None)
             if value is not None:
                 transient[field] = value
 
-        entities = self._entity_resolver.resolve(query)
-        if entities.leave_type_text and "leave_type_text" not in transient:
-            transient["leave_type_text"] = entities.leave_type_text
-        if entities.employee_name:
-            transient["employee_name"] = entities.employee_name
+        entities = self._entity_resolver.extract(query)
+        business = entities.business
+        if business.leave_type_text and "leave_type_text" not in transient:
+            transient["leave_type_text"] = business.leave_type_text
+        if business.employee_name:
+            transient["employee_name"] = business.employee_name
+        if business.employee_code:
+            transient["employee_code"] = business.employee_code
+        if business.contract_code:
+            transient["contract_code"] = business.contract_code
+        if business.reason and "reason" in schema_fields:
+            arguments.setdefault("reason", business.reason)
 
-        schema_fields = tool.argument_schema.model_fields
-        if entities.request_code and "request_id" in schema_fields:
-            numeric = entities.request_code.upper().removeprefix("LEAVE-")
-            if numeric.isdigit():
-                arguments.setdefault("request_id", int(numeric))
+        if business.leave_request_code:
+            transient["leave_request_code"] = business.leave_request_code
+            # Only a plain numeric identifier is accepted by the current tool
+            # contract. A LEAVE-* business code needs an allowlisted lookup.
+            if (
+                "request_id" in schema_fields
+                and business.leave_request_code.isdigit()
+            ):
+                arguments.setdefault(
+                    "request_id",
+                    int(business.leave_request_code),
+                )
 
         ambiguous = list(selection.ambiguous_arguments)
         try:

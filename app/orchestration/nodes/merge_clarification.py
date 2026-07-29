@@ -5,35 +5,13 @@ from typing import Any
 from langgraph.runtime import Runtime
 
 from app.context.date_resolver import AmbiguousDateExpression
+from app.context.entity_resolver import EntityOption
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update, trusted_today
-from app.orchestration.state import ChatGraphState
+from app.orchestration.state import ChatGraphState, ChatResponseType, WorkflowStatus
 from app.routing.schemas import ToolSelection
 from app.tools.definitions import TrustedExecutionContext, ValidatedToolExecution
-
-
-def _normalized(value: str) -> str:
-    return " ".join(value.casefold().split())
-
-
-def _leave_type_options(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, dict):
-        for key in ("leave_types", "items", "data", "result"):
-            nested = data.get(key)
-            if isinstance(nested, list):
-                data = nested
-                break
-    if not isinstance(data, list):
-        return []
-    options: list[dict[str, Any]] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        value = item.get("id") or item.get("value") or item.get("leave_type_id")
-        label = item.get("name") or item.get("label") or item.get("display_name")
-        if isinstance(value, int) and value > 0 and isinstance(label, str):
-            options.append({"value": value, "label": label})
-    return options
+from app.workflows.slot_manager import SlotState
 
 
 async def merge_clarification_node(
@@ -42,6 +20,10 @@ async def merge_clarification_node(
     started = perf_counter()
     tool_name = state.get("pending_tool_name")
     if not tool_name:
+        await runtime.context.conversation_service.clear_workflow(
+            state["conversation_id"],
+            int(state["trusted_context"]["odoo_user_id"]),
+        )
         return {
             **stage_update(
                 state,
@@ -51,9 +33,19 @@ async def merge_clarification_node(
             ),
             "workflow_issues": [{"code": "CLARIFICATION_CONTEXT_MISSING"}],
             "pending_tool_name": None,
+            "workflow_status": WorkflowStatus.FAILED,
+            "response_type": ChatResponseType.ERROR,
+            "response_text": "Ngữ cảnh làm rõ không còn hợp lệ.",
+            "response_data": {
+                "reason_code": "CLARIFICATION_CONTEXT_MISSING"
+            },
         }
     tool = runtime.context.tool_registry.get(tool_name)
     if not tool.enabled:
+        await runtime.context.conversation_service.clear_workflow(
+            state["conversation_id"],
+            int(state["trusted_context"]["odoo_user_id"]),
+        )
         return {
             **stage_update(
                 state,
@@ -63,6 +55,10 @@ async def merge_clarification_node(
             ),
             "workflow_issues": [{"code": "PENDING_TOOL_DISABLED"}],
             "pending_tool_name": None,
+            "workflow_status": WorkflowStatus.FAILED,
+            "response_type": ChatResponseType.ERROR,
+            "response_text": "Nghiệp vụ đang chờ hiện không còn khả dụng.",
+            "response_data": {"reason_code": "PENDING_TOOL_DISABLED"},
         }
     workflow = runtime.context.workflow_registry.get(tool_name)
     missing = list(state.get("missing_arguments", []))
@@ -75,7 +71,7 @@ async def merge_clarification_node(
         field = unresolved[0] if unresolved else None
     message = (state.get("user_message") or "").strip()
     arguments = dict(state.get("collected_arguments", {}))
-    options: list[dict[str, Any]] = []
+    options: list[dict[str, object]] = []
     resolved = False
     trusted_data = state["trusted_context"]
     structured = state.get("clarification")
@@ -83,10 +79,28 @@ async def merge_clarification_node(
         field
         and isinstance(structured, dict)
         and structured.get("field") == field
-        and isinstance(structured.get("value"), (int, str))
+        and isinstance(structured.get("value"), (bool, float, int, str))
     ):
-        arguments[field] = structured["value"]
-        resolved = True
+        structured_value = structured["value"]
+        if field == "leave_type_id":
+            known_options = [
+                EntityOption.model_validate(item)
+                for item in state.get("workflow_data", {}).get(
+                    "clarification_options",
+                    [],
+                )
+            ]
+            if any(
+                option.value == structured_value for option in known_options
+            ):
+                arguments[field] = structured_value
+                options = [
+                    item.model_dump(mode="json") for item in known_options
+                ]
+                resolved = True
+        else:
+            arguments[field] = structured_value
+            resolved = True
     elif field in {"date", "date_from", "date_to"}:
         try:
             value = runtime.context.date_resolver.resolve(
@@ -96,6 +110,8 @@ async def merge_clarification_node(
             )
         except AmbiguousDateExpression:
             value = None
+            if field:
+                ambiguous.append(field)
         if value is not None:
             if field == "date" and value.date_from == value.date_to:
                 arguments[field] = value.date_from
@@ -111,11 +127,14 @@ async def merge_clarification_node(
             arguments[field] = int(match.group(1))
             resolved = True
     elif field == "leave_type_id":
-        match = re.fullmatch(r"\s*(\d+)\s*", message)
-        if match:
-            arguments[field] = int(match.group(1))
-            resolved = True
-        else:
+        typed_options = [
+            EntityOption.model_validate(item)
+            for item in state.get("workflow_data", {}).get(
+                "clarification_options",
+                [],
+            )
+        ]
+        if not typed_options:
             lookup = await runtime.context.tool_executor.execute_validated(
                 ValidatedToolExecution(
                     tool_name="leave_list_types",
@@ -126,15 +145,35 @@ async def merge_clarification_node(
                 )
             )
             if lookup.success:
-                options = _leave_type_options(lookup.data)
-                matches = [
-                    item
-                    for item in options
-                    if _normalized(str(item["label"])) == _normalized(message)
-                ]
-                if len(matches) == 1:
-                    arguments[field] = matches[0]["value"]
-                    resolved = True
+                typed_options = (
+                    runtime.context.business_entity_resolver.leave_type_options(
+                        lookup.data
+                    )
+                )
+        options = [
+            item.model_dump(mode="json") for item in typed_options
+        ]
+        numeric = re.fullmatch(r"\s*(\d+)\s*", message)
+        matched = (
+            next(
+                (
+                    option
+                    for option in typed_options
+                    if numeric and option.value == int(numeric.group(1))
+                ),
+                None,
+            )
+            if numeric
+            else (
+                runtime.context.business_entity_resolver.match_leave_type(
+                    message,
+                    typed_options,
+                )
+            )
+        )
+        if matched is not None:
+            arguments[field] = matched.value
+            resolved = True
     elif field:
         arguments[field] = message
         resolved = bool(message)
@@ -142,6 +181,26 @@ async def merge_clarification_node(
     if resolved and field:
         missing = [item for item in missing if item != field]
         ambiguous = [item for item in ambiguous if item != field]
+    slot_issues: list[dict[str, Any]] = []
+    if workflow:
+        slot_state = runtime.context.slot_manager.merge(
+            workflow,
+            SlotState(
+                values=state.get("collected_arguments", {}),
+                missing=missing,
+                ambiguous=ambiguous,
+            ),
+            arguments,
+        )
+        arguments = slot_state.values
+        missing = runtime.context.slot_manager.get_missing_slots(
+            workflow,
+            slot_state,
+        )
+        ambiguous = slot_state.ambiguous
+        slot_issues = [
+            issue.model_dump(mode="json") for issue in slot_state.issues
+        ]
     persisted_selection = state.get("workflow_data", {}).get("selection")
     selection = (
         ToolSelection.model_validate(persisted_selection)
@@ -178,6 +237,7 @@ async def merge_clarification_node(
             "workflow_data": {
                 **state.get("workflow_data", {}),
                 "clarification_options": options,
+                "slot_issues": slot_issues,
             },
         }
     )

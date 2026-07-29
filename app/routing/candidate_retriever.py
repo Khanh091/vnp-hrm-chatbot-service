@@ -51,7 +51,42 @@ class CandidateRetriever:
         self,
         request: CandidateRetrievalRequest,
     ) -> CandidateRetrievalOutcome:
+        classification = request.classification
+        direct_matches = self._registry.find_tools(
+            intent=classification.intent,
+            domain=(
+                classification.domain.value
+                if classification.domain is not None
+                else None
+            ),
+            route=classification.route,
+            operation=(
+                None
+                if classification.operation is Operation.NONE
+                else classification.operation
+            ),
+            scope=classification.scope,
+        )
+        if classification.intent is not None and len(direct_matches) == 1:
+            tool = direct_matches[0]
+            return CandidateRetrievalOutcome(
+                candidates=[
+                    ToolCandidate(
+                        tool_name=tool.name,
+                        domain=Domain(tool.domain.value),
+                        capability=tool.capability,
+                        operation=tool.query_operation,
+                        score=1.0,
+                        rank=1,
+                    )
+                ],
+                embedding_ms=0,
+                vector_search_ms=0,
+                fallback_reason="DIRECT_INTENT_MAPPING",
+            )
+
         route_types = self._metadata_routes(request.classification.route_type)
+        operations = self._metadata_operations(classification.operation)
         if not route_types:
             return CandidateRetrievalOutcome(
                 candidates=[],
@@ -63,6 +98,7 @@ class CandidateRetriever:
         domains, fallback_reason = await self._select_domains(
             request,
             route_types,
+            operations,
         )
         if not domains:
             return CandidateRetrievalOutcome(
@@ -86,6 +122,7 @@ class CandidateRetriever:
             embedding=embedding,
             domains=tuple(domain.value for domain in domains),
             route_types=route_types,
+            operations=operations,
             limit=request.effective_fetch_k,
         )
         vector_search_ms = (perf_counter() - search_started) * 1000
@@ -102,6 +139,10 @@ class CandidateRetriever:
                 not tool.enabled
                 or tool.domain.value != match.domain
                 or retrieval_route(tool) not in route_types
+                or (
+                    classification.operation is not Operation.NONE
+                    and tool.query_operation is not classification.operation
+                )
                 or all(
                     scope.value != request.classification.scope.value
                     for scope in tool.supported_scopes
@@ -110,7 +151,6 @@ class CandidateRetriever:
                 continue
             try:
                 domain = Domain(match.domain)
-                operation = Operation(match.operation)
             except ValueError:
                 continue
             candidates.append(
@@ -118,7 +158,7 @@ class CandidateRetriever:
                     tool_name=tool.name,
                     domain=domain,
                     capability=tool.capability,
-                    operation=operation,
+                    operation=tool.query_operation,
                     score=match.score,
                     rank=len(candidates) + 1,
                 )
@@ -137,12 +177,14 @@ class CandidateRetriever:
         self,
         request: CandidateRetrievalRequest,
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> tuple[tuple[Domain, ...], str | None]:
         classification = request.classification
         primary = classification.primary_domain
         if primary in self._supported_domains and await self._has(
             (primary,),
             route_types,
+            operations,
         ):
             return (primary,), None
 
@@ -151,7 +193,7 @@ class CandidateRetriever:
             for domain in classification.secondary_domains
             if domain in self._supported_domains and domain is not primary
         )
-        if secondary and await self._has(secondary, route_types):
+        if secondary and await self._has(secondary, route_types, operations):
             return secondary, "SECONDARY_DOMAIN_FALLBACK"
 
         if classification.confidence >= _HIGH_CONFIDENCE:
@@ -164,7 +206,7 @@ class CandidateRetriever:
             for domain in self._supported_domains
             if domain is not primary and domain not in secondary
         )
-        if broader and await self._has(broader, route_types):
+        if broader and await self._has(broader, route_types, operations):
             return broader, "LOW_CONFIDENCE_DOMAIN_EXPANSION"
         return (), "NO_METADATA_CANDIDATES"
 
@@ -172,10 +214,12 @@ class CandidateRetriever:
         self,
         domains: tuple[Domain, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool:
         return await self._vector_store.has_candidates(
             domains=tuple(domain.value for domain in domains),
             route_types=route_types,
+            operations=operations,
         )
 
     @staticmethod
@@ -185,3 +229,9 @@ class CandidateRetriever:
         if route_type in {RouteType.STRUCTURED_QUERY, RouteType.ANALYTICS}:
             return ("structured_query",)
         return ()
+
+    @staticmethod
+    def _metadata_operations(operation: Operation) -> tuple[str, ...]:
+        if operation is Operation.READ or operation is Operation.NONE:
+            return ("get", "list", "check")
+        return (operation.value,)

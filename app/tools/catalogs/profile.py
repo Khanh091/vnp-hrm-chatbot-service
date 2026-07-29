@@ -44,7 +44,10 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_summary",
         capability="profile.summary",
-        description="Lấy thông tin hồ sơ nhân sự tổng quan của chính người dùng.",
+        description=(
+            "Lấy hồ sơ nhân sự tổng quan của chính người dùng, gồm họ tên, "
+            "mã nhân viên/mã nhân sự, ngày sinh nếu có và thông tin cá nhân cơ bản."
+        ),
         endpoint="summary",
         examples=(
             "Cho tôi xem hồ sơ nhân sự tổng quan.",
@@ -52,6 +55,16 @@ PROFILE_TOOLS = (
             "Tóm tắt hồ sơ công việc hiện tại của tôi.",
             "Hiển thị mã nhân viên, chức danh và đơn vị của tôi.",
             "Tôi muốn kiểm tra thông tin nhân viên khái quát.",
+            "Tên của tôi là gì?",
+            "Họ tên đầy đủ của tôi là gì?",
+            "Mã nhân viên của tôi là gì?",
+            "Mã nhân sự của tôi là gì?",
+            "Ngày sinh của tôi là gì?",
+            "Thông tin cá nhân của tôi.",
+            "ten cua toi la gi",
+            "ma nhan vien cua toi",
+            "ma nhan su cua toi",
+            "thong tin ca nhan cua toi",
         ),
         negative_examples=(
             "Số tài khoản nhận lương của tôi là gì?",
@@ -62,7 +75,10 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_employment",
         capability="profile.employment",
-        description="Lấy thông tin vị trí, đơn vị và quá trình vào làm hiện tại.",
+        description=(
+            "Lấy thông tin công tác hiện tại: đơn vị, công ty, phòng ban, chức danh, "
+            "vị trí công việc, loại nhân sự, trạng thái làm việc và quản lý trực tiếp."
+        ),
         endpoint="employment",
         examples=(
             "Thông tin công tác hiện tại của tôi.",
@@ -70,6 +86,19 @@ PROFILE_TOOLS = (
             "Ngày tôi vào đơn vị là khi nào?",
             "Cho xem phòng ban, chức danh và quản lý trực tiếp.",
             "Trạng thái làm việc hiện tại của tôi ra sao?",
+            "Đơn vị công tác của tôi là gì?",
+            "Công ty của tôi là gì?",
+            "Phòng ban của tôi là gì?",
+            "Tôi thuộc phòng nào?",
+            "Chức danh công việc của tôi là gì?",
+            "Vị trí làm việc của tôi là gì?",
+            "Loại nhân sự của tôi là gì?",
+            "Quản lý trực tiếp của tôi là ai?",
+            "Sếp trực tiếp của tôi là ai?",
+            "don vi cong tac cua toi",
+            "phong ban cua toi",
+            "chuc danh cong viec cua toi",
+            "quan ly truc tiep cua toi",
         ),
         negative_examples=(
             "Lịch sử điều chuyển công tác của tôi.",
@@ -88,6 +117,12 @@ PROFILE_TOOLS = (
             "Số di động trong hồ sơ của tôi là số nào?",
             "Kiểm tra email cá nhân tôi đã khai báo.",
             "Hiển thị các số điện thoại liên hệ của tôi.",
+            "Email của tôi là gì?",
+            "Email công việc của tôi.",
+            "Số điện thoại của tôi là gì?",
+            "email cua toi",
+            "so dien thoai cua toi",
+            "thong tin lien he cua toi",
         ),
         negative_examples=(
             "Thông tin ngân hàng của tôi.",
@@ -124,6 +159,12 @@ PROFILE_TOOLS = (
             "Quá trình học tập trong hồ sơ nhân sự.",
             "Trình độ chuyên môn của tôi đang được lưu ra sao?",
             "Danh sách trường và ngành tôi đã học.",
+            "Trình độ đào tạo của tôi.",
+            "Trình độ học vấn của tôi.",
+            "Bằng cấp của tôi.",
+            "trinh do dao tao cua toi",
+            "trinh do hoc van cua toi",
+            "bang cap cua toi",
         ),
         negative_examples=(
             "Tôi có chứng chỉ nghề nghiệp nào?",
@@ -235,6 +276,13 @@ PROFILE_TOOLS = (
             "Danh sách hợp đồng tôi đã ký với công ty.",
             "Tình trạng hợp đồng làm việc hiện tại.",
             "Hợp đồng của tôi còn bao nhiêu ngày hiệu lực?",
+            "Hợp đồng hiện tại của tôi.",
+            "Ngày hết hạn hợp đồng của tôi.",
+            "Hợp đồng của tôi hết hạn khi nào?",
+            "Lịch sử hợp đồng của tôi.",
+            "hop dong hien tai cua toi",
+            "ngay het han hop dong cua toi",
+            "lich su hop dong cua toi",
         ),
         negative_examples=(
             "Ngày tôi chính thức vào đơn vị.",

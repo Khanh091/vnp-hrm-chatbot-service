@@ -4,7 +4,12 @@ from langgraph.runtime import Runtime
 
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
-from app.orchestration.state import ChatGraphState
+from app.orchestration.state import (
+    ChatGraphState,
+    ChatResponseType,
+    WorkflowStatus,
+)
+from app.routing.query_classifier import QueryClassifierError
 from app.routing.schemas import NormalizedQuery
 
 
@@ -13,10 +18,50 @@ async def classify_query_node(
 ) -> dict[str, object]:
     started = perf_counter()
     text = state.get("normalized_query") or ""
-    result = await runtime.context.query_classifier.classify(
-        NormalizedQuery(original_text=state.get("user_message") or text,
-                        normalized_text=text)
-    )
+    try:
+        result = await runtime.context.query_classifier.classify(
+            NormalizedQuery(
+                original_text=state.get("user_message") or text,
+                normalized_text=text,
+            )
+        )
+    except QueryClassifierError as error:
+        answer = {
+            "LLM_RATE_LIMITED": (
+                "Hệ thống AI đang tạm thời đạt giới hạn xử lý. "
+                "Vui lòng thử lại sau."
+            ),
+            "LLM_BAD_RESPONSE": (
+                "Hệ thống chưa phân tích được yêu cầu này. "
+                "Vui lòng diễn đạt lại ngắn gọn hơn."
+            ),
+            "LLM_TIMEOUT": (
+                "Hệ thống AI phản hồi quá chậm. Vui lòng thử lại sau."
+            ),
+        }.get(
+            error.reason_code,
+            "Hệ thống AI tạm thời chưa sẵn sàng. Vui lòng thử lại sau.",
+        )
+        return {
+            **stage_update(
+                state,
+                event="query_classification_failed",
+                timing_name="classification_ms",
+                started=started,
+                data={"reason_code": error.reason_code},
+            ),
+            "workflow_status": WorkflowStatus.FAILED,
+            "response_type": ChatResponseType.ERROR,
+            "response_text": answer,
+            "response_data": {
+                "stage": "classification",
+                "reason_code": error.reason_code,
+            },
+            "pending_tool_name": None,
+            "missing_arguments": [],
+            "ambiguous_arguments": [],
+            "workflow_data": {},
+        }
     update = stage_update(
         state,
         event="query_classified",

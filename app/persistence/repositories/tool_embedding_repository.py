@@ -141,6 +141,7 @@ class SqlAlchemyToolEmbeddingRepository:
         *,
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool:
         count = await self._session.scalar(
             select(func.count())
@@ -149,6 +150,7 @@ class SqlAlchemyToolEmbeddingRepository:
                 ToolEmbedding.enabled.is_(True),
                 ToolEmbedding.domain.in_(domains),
                 ToolEmbedding.route_type.in_(route_types),
+                ToolEmbedding.operation.in_(operations),
             )
         )
         return bool(count)
@@ -159,6 +161,7 @@ class SqlAlchemyToolEmbeddingRepository:
         embedding: list[float],
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
         limit: int,
     ) -> list[VectorSearchMatch]:
         cosine_distance = ToolEmbedding.embedding.cosine_distance(embedding)
@@ -176,6 +179,7 @@ class SqlAlchemyToolEmbeddingRepository:
                     ToolEmbedding.enabled.is_(True),
                     ToolEmbedding.domain.in_(domains),
                     ToolEmbedding.route_type.in_(route_types),
+                    ToolEmbedding.operation.in_(operations),
                 )
                 .order_by(cosine_distance)
                 .limit(limit)

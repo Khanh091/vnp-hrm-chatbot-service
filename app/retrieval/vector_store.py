@@ -13,6 +13,7 @@ class VectorStore(Protocol):
         *,
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool: ...
 
     async def search(
@@ -21,6 +22,7 @@ class VectorStore(Protocol):
         embedding: list[float],
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
         limit: int,
     ) -> list[VectorSearchMatch]: ...
 
@@ -37,10 +39,12 @@ class PgVectorStore:
         *,
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool:
         return await self._repository.has_candidates(
             domains=domains,
             route_types=route_types,
+            operations=operations,
         )
 
     async def search(
@@ -49,12 +53,14 @@ class PgVectorStore:
         embedding: list[float],
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
         limit: int,
     ) -> list[VectorSearchMatch]:
         return await self._repository.vector_search(
             embedding=embedding,
             domains=domains,
             route_types=route_types,
+            operations=operations,
             limit=limit,
         )
 
@@ -70,6 +76,7 @@ class DatabasePgVectorStore:
         *,
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool:
         async with self._database.session() as session:
             return await SqlAlchemyToolEmbeddingRepository(
@@ -77,6 +84,7 @@ class DatabasePgVectorStore:
             ).has_candidates(
                 domains=domains,
                 route_types=route_types,
+                operations=operations,
             )
 
     async def search(
@@ -85,6 +93,7 @@ class DatabasePgVectorStore:
         embedding: list[float],
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
         limit: int,
     ) -> list[VectorSearchMatch]:
         async with self._database.session() as session:
@@ -94,5 +103,6 @@ class DatabasePgVectorStore:
                 embedding=embedding,
                 domains=domains,
                 route_types=route_types,
+                operations=operations,
                 limit=limit,
             )

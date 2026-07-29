@@ -1,5 +1,15 @@
 from collections.abc import Iterable
 
+from app.routing.taxonomy import (
+    Intent,
+    QueryRoute,
+)
+from app.routing.taxonomy import (
+    Operation as QueryOperation,
+)
+from app.routing.taxonomy import (
+    SubjectScope as QuerySubjectScope,
+)
 from app.tools.definitions import Domain, RouteType, ToolDefinition
 from app.tools.policies import validate_tool_definition
 
@@ -53,4 +63,29 @@ class ToolRegistry:
             if (domain is None or tool.domain is domain)
             and (route_type is None or tool.route_type is route_type)
             and (enabled is None or tool.enabled is enabled)
+        )
+
+    def find_tools(
+        self,
+        *,
+        intent: Intent | None = None,
+        domain: str | None = None,
+        route: QueryRoute | None = None,
+        operation: QueryOperation | None = None,
+        scope: QuerySubjectScope | None = None,
+        enabled: bool = True,
+    ) -> tuple[ToolDefinition, ...]:
+        """Return the deterministic runtime allowlist before vector retrieval."""
+        return tuple(
+            tool
+            for tool in self._tools.values()
+            if (intent is None or tool.intent is intent)
+            and (domain is None or tool.domain.value == domain)
+            and (route is None or tool.route is route)
+            and (operation is None or tool.query_operation is operation)
+            and (
+                scope is None
+                or any(item.value == scope.value for item in tool.supported_scopes)
+            )
+            and (not enabled or tool.enabled)
         )

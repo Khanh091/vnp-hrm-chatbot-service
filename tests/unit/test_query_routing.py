@@ -329,3 +329,78 @@ async def test_groq_compound_omits_qwen_only_reasoning_effort() -> None:
     assert "reasoning_effort" not in captured_payload
     assert captured_payload["tool_choice"] == "none"
     assert captured_payload["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_groq_gpt_oss_uses_low_reasoning_effort() -> None:
+    captured_payload: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": QueryClassification(
+                                route_type=RouteType.STRUCTURED_QUERY,
+                                primary_domain=Domain.PROFILE,
+                                confidence=0.9,
+                            ).model_dump_json()
+                        }
+                    }
+                ]
+            },
+        )
+
+    http_client = httpx.AsyncClient(
+        base_url="https://groq.test/openai/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    settings = Settings.model_construct(
+        llm_provider="groq",
+        groq_base_url="https://groq.test/openai/v1",
+        groq_api_key=SecretStr("unit-test-secret"),
+        groq_chat_model="openai/gpt-oss-20b",
+        groq_timeout_seconds=10.0,
+    )
+    client = GroqLlmClient(settings, client=http_client)
+    try:
+        await client.complete_structured(
+            system_prompt="system",
+            user_prompt="Email của tôi là gì?",
+            schema=QueryClassification,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert captured_payload["reasoning_effort"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_llm_factory_selects_classifier_and_response_models() -> None:
+    settings = Settings.model_construct(
+        llm_provider="groq",
+        groq_base_url="https://groq.test/openai/v1",
+        groq_api_key=SecretStr("unit-test-secret"),
+        groq_chat_model="legacy-model",
+        groq_classifier_model="llama-3.1-8b-instant",
+        groq_selector_model="qwen/qwen3.6-27b",
+        groq_response_model="openai/gpt-oss-20b",
+        groq_timeout_seconds=10.0,
+    )
+    classifier = build_llm_client(settings, purpose="classifier")
+    selector = build_llm_client(settings, purpose="selector")
+    response = build_llm_client(settings, purpose="response")
+    try:
+        assert isinstance(classifier, GroqLlmClient)
+        assert isinstance(selector, GroqLlmClient)
+        assert isinstance(response, GroqLlmClient)
+        assert classifier.model == "llama-3.1-8b-instant"
+        assert selector.model == "qwen/qwen3.6-27b"
+        assert response.model == "openai/gpt-oss-20b"
+    finally:
+        await classifier.close()
+        await selector.close()
+        await response.close()

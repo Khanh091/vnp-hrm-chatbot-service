@@ -12,7 +12,20 @@ from pydantic import (
     model_validator,
 )
 
+from app.routing.taxonomy import (
+    Intent,
+    QueryRoute,
+)
+from app.routing.taxonomy import (
+    Operation as RoutingOperation,
+)
+from app.routing.taxonomy import (
+    SubjectScope as RoutingSubjectScope,
+)
 from app.tools.definitions import RiskLevel
+
+Operation = RoutingOperation
+SubjectScope = RoutingSubjectScope
 
 
 class RouteType(str, Enum):
@@ -31,28 +44,6 @@ class Domain(str, Enum):
     ATTENDANCE = "attendance"
     LEAVE = "leave"
     GENERAL = "general"
-
-
-class Operation(str, Enum):
-    GET = "get"
-    LIST = "list"
-    CHECK = "check"
-    CREATE = "create"
-    UPDATE = "update"
-    CANCEL = "cancel"
-    EXPLAIN = "explain"
-    SEARCH = "search"
-    NAVIGATE = "navigate"
-    SUMMARIZE = "summarize"
-
-
-class SubjectScope(str, Enum):
-    SELF = "self"
-    NAMED_EMPLOYEE = "named_employee"
-    DIRECT_REPORTS = "direct_reports"
-    DEPARTMENT = "department"
-    COMPANY = "company"
-    UNKNOWN = "unknown"
 
 
 class NormalizedQuery(BaseModel):
@@ -75,25 +66,13 @@ class RuleHints(BaseModel):
 class QueryClassification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    route_type: RouteType = Field(
-        description="Mục đích xử lý của toàn bộ câu hỏi; không phải domain.",
-    )
-    primary_domain: Domain = Field(
-        description="Domain HRM chính; không phải route.",
-    )
+    route: QueryRoute
+    domain: Domain | None = None
+    intent: Intent | None = None
+    operation: Operation = Operation.NONE
     secondary_domains: list[Domain] = Field(
         default_factory=list,
-        description="Các domain phụ thực sự cần làm ngữ cảnh.",
-    )
-    capability_hint: str | None = Field(
-        default=None,
-        max_length=80,
-        pattern=r"^[a-z][a-z0-9_]*$",
-        description="Nhãn năng lực snake_case ngắn; tuyệt đối không phải tên tool.",
-    )
-    operation_hint: Operation | None = Field(
-        default=None,
-        description="Thao tác người dùng muốn thực hiện.",
+        exclude=True,
     )
     scope: SubjectScope = Field(
         default=SubjectScope.SELF,
@@ -107,20 +86,90 @@ class QueryClassification(BaseModel):
         description="Mã UPPER_SNAKE_CASE ngắn, không phải explanation.",
     )
 
-    @field_validator("secondary_domains")
+    @model_validator(mode="before")
     @classmethod
-    def unique_secondary_domains(cls, value: list[Domain]) -> list[Domain]:
-        return list(dict.fromkeys(value))
+    def accept_legacy_classifier_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        legacy_route = data.pop("route_type", None)
+        if "route" not in data and legacy_route is not None:
+            data["route"] = {
+                "structured_query": QueryRoute.DATA_QUERY,
+                "analytics": QueryRoute.DATA_QUERY,
+                "transaction": QueryRoute.TASK,
+                "document_qa": QueryRoute.KNOWLEDGE,
+                "general_chat": QueryRoute.GENERAL,
+                "unsupported": QueryRoute.UNSUPPORTED,
+            }.get(
+                str(getattr(legacy_route, "value", legacy_route)),
+                QueryRoute.UNSUPPORTED,
+            )
+        if "domain" not in data:
+            data["domain"] = data.pop("primary_domain", None)
+        else:
+            data.pop("primary_domain", None)
+        capability = data.pop("capability_hint", None)
+        if "intent" not in data and capability:
+            normalized = str(capability).replace("_", ".")
+            aliases = {
+                "contact.info": "profile.contact",
+                "leave.request.create": "leave.create",
+                "leave.request.update": "leave.update",
+                "leave.request.cancel": "leave.cancel",
+                "attendance.missing.punch.summary": "attendance.missing_punch",
+            }
+            candidate = aliases.get(normalized, normalized)
+            if candidate in {item.value for item in Intent}:
+                data["intent"] = candidate
+        legacy_operation = data.pop("operation_hint", None)
+        if "operation" not in data:
+            operation = str(
+                getattr(legacy_operation, "value", legacy_operation or "none")
+            )
+            data["operation"] = {
+                "get": "read",
+                "list": "read",
+                "check": "read",
+                "explain": "read",
+                "search": "read",
+                "navigate": "read",
+                "summarize": "read",
+            }.get(operation, operation)
+        return data
 
-    @field_validator("capability_hint", "reason_code")
+    @field_validator("reason_code")
     @classmethod
-    def reject_long_explanations(cls, value: str | None) -> str | None:
+    def normalize_reason_code(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()
         if not normalized:
             return None
         return normalized
+
+    @property
+    def route_type(self) -> RouteType:
+        return {
+            QueryRoute.DATA_QUERY: RouteType.STRUCTURED_QUERY,
+            QueryRoute.TASK: RouteType.TRANSACTION,
+            QueryRoute.KNOWLEDGE: RouteType.DOCUMENT_QA,
+            QueryRoute.GENERAL: RouteType.GENERAL_CHAT,
+            QueryRoute.UNSUPPORTED: RouteType.UNSUPPORTED,
+            QueryRoute.UNSAFE: RouteType.UNSUPPORTED,
+        }[self.route]
+
+    @property
+    def primary_domain(self) -> Domain:
+        return self.domain or Domain.GENERAL
+
+    @property
+    def capability_hint(self) -> str | None:
+        return self.intent.value if self.intent else None
+
+    @property
+    def operation_hint(self) -> Operation | None:
+        return None if self.operation is Operation.NONE else self.operation
 
 
 class ToolCandidate(BaseModel):
@@ -176,6 +225,7 @@ class ToolSelection(BaseModel):
 
     selected_tool: str | None = Field(default=None, max_length=64)
     confidence: float = Field(ge=0.0, le=1.0)
+    scope: SubjectScope = SubjectScope.SELF
     extracted_arguments: dict[str, Any] = Field(default_factory=dict)
     missing_arguments: list[str] = Field(default_factory=list)
     ambiguous_arguments: list[str] = Field(default_factory=list)
@@ -249,6 +299,10 @@ class ValidationIssue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
+    category: str = Field(
+        default="routing",
+        pattern=r"^(security|routing|confidence|arguments|policy)$",
+    )
     field: str | None = None
     message: str
 

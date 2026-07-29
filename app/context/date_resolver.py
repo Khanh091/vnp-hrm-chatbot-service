@@ -21,10 +21,35 @@ class DateResolver:
     ) -> ResolvedDateRange | None:
         normalized = " ".join(text.lower().split())
 
-        if re.search(r"\bthứ hai\b", normalized) and not re.search(
-            r"\b(tuần này|tuần trước|tuần sau)\b", normalized
+        ambiguous_match = re.search(
+            r"\b(thứ hai|cuối tháng|đầu tuần|ngày đó)\b",
+            normalized,
+        )
+        if ambiguous_match and not (
+            ambiguous_match.group(1) == "thứ hai"
+            and re.search(r"\b(tuần này|tuần trước|tuần sau)\b", normalized)
         ):
-            raise AmbiguousDateExpression("thứ hai")
+            raise AmbiguousDateExpression(ambiguous_match.group(1))
+
+        explicit = re.search(
+            r"\b(?P<day>\d{1,2})/(?P<month>\d{1,2})/(?P<year>\d{4})\b",
+            normalized,
+        )
+        if explicit:
+            try:
+                value = date(
+                    int(explicit.group("year")),
+                    int(explicit.group("month")),
+                    int(explicit.group("day")),
+                )
+            except ValueError:
+                return None
+            return self._result(
+                value,
+                value,
+                explicit.group(0),
+                "explicit_date",
+            )
 
         resolvers = (
             self._relative_day(normalized, current_date),

@@ -2,6 +2,7 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.context.conversation import ConversationStatus
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import (
@@ -59,6 +60,33 @@ async def validate_selection_node(
         missing_arguments=state.get("missing_arguments", []),
         ambiguous_arguments=state.get("ambiguous_arguments", []),
     )
+    slot_issues = workflow_data.get("slot_issues", [])
+    if slot_issues:
+        await runtime.context.conversation_service.clear_workflow(
+            state["conversation_id"],
+            int(state["trusted_context"]["odoo_user_id"]),
+            status=ConversationStatus.FAILED,
+        )
+        return {
+            **stage_update(
+                state,
+                event="slot_validation_failed",
+                timing_name="validation_ms",
+                started=started,
+            ),
+            "workflow_status": WorkflowStatus.FAILED,
+            "response_type": ChatResponseType.ERROR,
+            "response_text": "Khoảng ngày hoặc thông tin đã nhập chưa hợp lệ.",
+            "response_data": {
+                "reason_code": "INVALID_ARGUMENTS",
+                "issues": slot_issues,
+            },
+            "pending_tool_name": None,
+            "collected_arguments": {},
+            "missing_arguments": [],
+            "ambiguous_arguments": [],
+            "workflow_data": {},
+        }
     result = runtime.context.validator.validate(
         ToolSelection.model_validate(state["selection"]),
         resolution,
@@ -93,11 +121,27 @@ async def validate_selection_node(
         }
     )
     if status is WorkflowStatus.FAILED:
+        await runtime.context.conversation_service.clear_workflow(
+            state["conversation_id"],
+            int(state["trusted_context"]["odoo_user_id"]),
+            status=ConversationStatus.FAILED,
+        )
+        categories = {issue.category for issue in result.errors}
+        if "security" in categories:
+            response_text = "Bạn không có quyền thực hiện yêu cầu này."
+            public_code = "ACCESS_DENIED"
+        elif "arguments" in categories:
+            response_text = "Thông tin đầu vào chưa hợp lệ."
+            public_code = "INVALID_ARGUMENTS"
+        else:
+            response_text = "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu."
+            public_code = "ROUTING_AMBIGUOUS"
         update.update(
             {
                 "response_type": ChatResponseType.ERROR,
-                "response_text": "Yêu cầu không vượt qua kiểm tra an toàn.",
+                "response_text": response_text,
                 "response_data": {
+                    "reason_code": public_code,
                     "issues": [
                         issue.model_dump(mode="json")
                         for issue in result.errors

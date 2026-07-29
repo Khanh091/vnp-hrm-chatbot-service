@@ -73,7 +73,7 @@ def test_low_confidence_is_blocked() -> None:
 
     assert result.can_execute is False
     assert any(
-        issue.code == "SELECTION_CONFIDENCE_TOO_LOW"
+        issue.code == "LOW_CONFIDENCE"
         for issue in result.errors
     )
 
@@ -97,7 +97,7 @@ def test_extra_argument_is_blocked() -> None:
     )
 
     assert result.valid is False
-    assert any(issue.code == "INVALID_ARGUMENT" for issue in result.errors)
+    assert any(issue.code == "INVALID_ARGUMENTS" for issue in result.errors)
 
 
 def test_trusted_override_is_blocked() -> None:
@@ -107,7 +107,7 @@ def test_trusted_override_is_blocked() -> None:
         rejected=["odoo_user_id"],
     )
 
-    assert any(issue.code == "TRUSTED_FIELD_REJECTED" for issue in result.errors)
+    assert any(issue.code == "TRUSTED_FIELD_INJECTION" for issue in result.errors)
 
 
 def test_write_requires_confirmation_and_gets_server_idempotency_key() -> None:
@@ -133,4 +133,4 @@ def test_invalid_date_range_is_blocked() -> None:
     )
 
     assert result.valid is False
-    assert any(issue.code == "INVALID_ARGUMENT" for issue in result.errors)
+    assert any(issue.code == "INVALID_ARGUMENTS" for issue in result.errors)

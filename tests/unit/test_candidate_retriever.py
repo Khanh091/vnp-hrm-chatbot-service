@@ -42,9 +42,16 @@ class FakeVectorStore:
     ) -> None:
         self.matches = matches
         self.available_domains = available_domains or {"leave"}
-        self.has_calls: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        self.has_calls: list[
+            tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]
+        ] = []
         self.search_calls: list[
-            tuple[tuple[str, ...], tuple[str, ...], int]
+            tuple[
+                tuple[str, ...],
+                tuple[str, ...],
+                tuple[str, ...],
+                int,
+            ]
         ] = []
 
     async def has_candidates(
@@ -52,8 +59,9 @@ class FakeVectorStore:
         *,
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
     ) -> bool:
-        self.has_calls.append((domains, route_types))
+        self.has_calls.append((domains, route_types, operations))
         return bool(set(domains) & self.available_domains)
 
     async def search(
@@ -62,9 +70,10 @@ class FakeVectorStore:
         embedding: list[float],
         domains: tuple[str, ...],
         route_types: tuple[str, ...],
+        operations: tuple[str, ...],
         limit: int,
     ) -> list[VectorSearchMatch]:
-        self.search_calls.append((domains, route_types, limit))
+        self.search_calls.append((domains, route_types, operations, limit))
         return self.matches
 
 
@@ -118,8 +127,12 @@ async def test_retriever_filters_domain_and_route_before_search() -> None:
     ).retrieve(request())
 
     assert outcome.candidates[0].tool_name == "leave_get_balance"
-    assert store.has_calls == [(("leave",), ("structured_query",))]
-    assert store.search_calls == [(("leave",), ("structured_query",), 20)]
+    assert store.has_calls == [
+        (("leave",), ("structured_query",), ("get", "list", "check"))
+    ]
+    assert store.search_calls == [
+        (("leave",), ("structured_query",), ("get", "list", "check"), 20)
+    ]
 
 
 @pytest.mark.asyncio

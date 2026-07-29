@@ -43,6 +43,8 @@ from app.orchestration.nodes.validate_selection import (
     validate_selection_node,
 )
 from app.orchestration.routes import (
+    route_after_clarification_merge,
+    route_after_classification,
     route_after_selection,
     route_after_turn_detection,
     route_after_validation,
@@ -88,10 +90,15 @@ def build_chat_graph(checkpointer: Any = None) -> Any:
         "detect_turn_type", route_after_turn_detection
     )
     builder.add_edge("normalize_query", "classify_query")
-    builder.add_edge("classify_query", "retrieve_candidates")
+    builder.add_conditional_edges(
+        "classify_query", route_after_classification
+    )
     builder.add_edge("retrieve_candidates", "select_tool")
     builder.add_conditional_edges("select_tool", route_after_selection)
-    builder.add_edge("merge_clarification", "resolve_arguments")
+    builder.add_conditional_edges(
+        "merge_clarification",
+        route_after_clarification_merge,
+    )
     builder.add_edge("resolve_arguments", "validate_selection")
     builder.add_conditional_edges(
         "validate_selection", route_after_validation

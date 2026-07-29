@@ -8,7 +8,6 @@ from app.llm.prompts.tool_selector import (
 )
 from app.llm.structured_output import StructuredOutputError
 from app.routing.schemas import (
-    Operation,
     RouteType,
     SubjectScope,
     ToolCandidate,
@@ -30,7 +29,9 @@ _TRUSTED_FIELDS = {
 
 
 class ToolSelectorError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, reason_code: str) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 class ToolSelector:
@@ -57,25 +58,56 @@ class ToolSelector:
                 confidence=1.0,
                 reason_code="NO_CANDIDATE_TOOL",
             )
+        if len(request.candidates) == 1:
+            candidate = request.candidates[0]
+            tool = self._registry.get(candidate.tool_name)
+            if (
+                request.classification.intent is not None
+                and tool.intent is request.classification.intent
+                and tool.query_operation is request.classification.operation
+            ):
+                return ToolSelection(
+                    selected_tool=tool.name,
+                    confidence=request.classification.confidence,
+                    scope=request.classification.scope,
+                    reason_code="DIRECT_INTENT_MAPPING",
+                )
         try:
             selection = await self._llm_client.complete_structured(
                 system_prompt=TOOL_SELECTOR_SYSTEM_PROMPT,
                 user_prompt=build_tool_selector_prompt(request),
                 schema=ToolSelection,
+                operation="tool_selection",
             )
         except (LlmClientError, StructuredOutputError) as error:
+            reason_code = (
+                "SELECTOR_INVALID_OUTPUT"
+                if isinstance(error, StructuredOutputError)
+                else "SELECTOR_PROVIDER_ERROR"
+            )
             logger.warning(
                 "tool_selection_failed reason_code=%s",
-                type(error).__name__.upper(),
+                reason_code,
             )
-            raise ToolSelectorError("Tool selection failed") from error
+            raise ToolSelectorError(
+                "Tool selection failed",
+                reason_code=reason_code,
+            ) from error
 
         if selection.selected_tool is not None:
             if selection.selected_tool not in allowed:
-                raise ToolSelectorError("Selected tool is outside candidates")
+                raise ToolSelectorError(
+                    "Selected tool is outside candidates",
+                    reason_code="SELECTOR_TOOL_NOT_IN_CANDIDATES",
+                )
             if _TRUSTED_FIELDS.intersection(selection.extracted_arguments):
-                raise ToolSelectorError("LLM returned trusted context fields")
-        return selection
+                raise ToolSelectorError(
+                    "LLM returned trusted context fields",
+                    reason_code="SELECTOR_TRUSTED_FIELD_INJECTION",
+                )
+        return selection.model_copy(
+            update={"scope": request.classification.scope}
+        )
 
     def build_candidate_contexts(
         self,
@@ -104,7 +136,7 @@ class ToolSelector:
                     tool_name=tool.name,
                     domain=candidate.domain,
                     capability=tool.capability,
-                    operation=Operation(tool.operation.value),
+                    operation=tool.query_operation,
                     route_type=(
                         RouteType.TRANSACTION
                         if tool.route_type is ToolRouteType.COMMAND

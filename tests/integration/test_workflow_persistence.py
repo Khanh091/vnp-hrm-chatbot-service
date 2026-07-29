@@ -19,6 +19,7 @@ from app.persistence.models import (
     PendingAction,
 )
 from app.tools.definitions import TrustedExecutionContext
+from app.workflows import SlotManager, build_workflow_registry
 
 
 @pytest.mark.asyncio
@@ -104,3 +105,78 @@ async def test_concurrent_confirmation_claims_execution_once() -> None:
         except OperationalError:
             pass
         await database.close()
+
+
+@pytest.mark.asyncio
+async def test_slot_filling_resumes_after_database_restart() -> None:
+    settings = get_settings()
+    conversation_id = f"test-slot-restart-{uuid4()}"
+    user_id = 900_000_002
+    trusted = TrustedExecutionContext(
+        odoo_user_id=user_id,
+        employee_id=1,
+        company_id=1,
+        timezone="Asia/Ho_Chi_Minh",
+        conversation_id=conversation_id,
+        request_id="test-slot-restart",
+    )
+    first_database = Database(settings.database_url)
+    try:
+        first_service = ConversationService(
+            first_database,
+            settings.conversation_state_ttl_seconds,
+        )
+        try:
+            conversation = await first_service.load_or_create(
+                conversation_id,
+                trusted,
+            )
+        except OperationalError:
+            pytest.skip("PostgreSQL integration database is unavailable")
+        await first_service.update(
+            conversation,
+            status=ConversationStatus.AWAITING_CLARIFICATION,
+            pending_tool_name="leave_create_request",
+            collected_arguments={"date_from": "2026-07-29"},
+            missing_arguments=["date_to", "leave_type_id"],
+            workflow_data={"current_field": "date_to"},
+        )
+    finally:
+        await first_database.close()
+
+    second_database = Database(settings.database_url)
+    try:
+        second_service = ConversationService(
+            second_database,
+            settings.conversation_state_ttl_seconds,
+        )
+        restored = await second_service.load_owned(conversation_id, user_id)
+        workflow = build_workflow_registry().get("leave_create_request")
+        assert workflow is not None
+        manager = SlotManager()
+        state = manager.initialize(workflow, restored.collected_arguments)
+        state = manager.merge(
+            workflow,
+            state,
+            {"date_to": "2026-07-30"},
+        )
+        assert state.values["date_from"] == "2026-07-29"
+        assert manager.get_next_slot(workflow, state) == "leave_type_id"
+        await second_service.clear_workflow(conversation_id, user_id)
+        cleared = await second_service.load_owned(conversation_id, user_id)
+        assert cleared.pending_tool_name is None
+        assert cleared.active_workflow is None
+        assert cleared.collected_arguments == {}
+        assert cleared.missing_arguments == []
+        assert cleared.workflow_data == {}
+    finally:
+        try:
+            async with second_database.session() as session:
+                await session.execute(
+                    delete(Conversation).where(
+                        Conversation.conversation_id == conversation_id
+                    )
+                )
+        except OperationalError:
+            pass
+        await second_database.close()

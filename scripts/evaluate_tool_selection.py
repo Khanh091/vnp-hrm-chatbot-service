@@ -57,11 +57,12 @@ async def run(*, limit: int | None = None) -> int:
     if limit is not None:
         cases = cases[:limit]
     settings = get_settings()
-    llm = build_llm_client(settings)
+    llm = build_llm_client(settings, purpose="classifier")
+    selector_llm = build_llm_client(settings, purpose="selector")
     embeddings = OllamaEmbeddingProvider(settings)
     database = Database(settings.database_url)
     registry = build_tool_registry()
-    selector = ToolSelector(llm, registry, settings)
+    selector = ToolSelector(selector_llm, registry, settings)
     resolver = ArgumentResolver()
     validator = ToolSelectionValidator(registry, settings)
     routing = RoutingService(
@@ -165,6 +166,7 @@ async def run(*, limit: int | None = None) -> int:
             )
     finally:
         await llm.close()
+        await selector_llm.close()
         await embeddings.close()
         await database.close()
 

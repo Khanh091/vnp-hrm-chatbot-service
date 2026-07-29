@@ -62,7 +62,9 @@ def test_argument_resolver_uses_code_date_and_rejects_trusted_fields() -> None:
         timezone="Asia/Ho_Chi_Minh",
     )
 
-    assert result.arguments["request_id"] == 123
+    assert "request_id" not in result.arguments
+    assert result.transient_entities["leave_request_code"] == "LEAVE-00123"
+    assert "request_id" in result.missing_arguments
     assert "odoo_user_id" not in result.arguments
     assert result.rejected_trusted_fields == ["odoo_user_id"]
 

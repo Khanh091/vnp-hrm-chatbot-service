@@ -25,7 +25,8 @@ from app.common.exceptions import AppError
 from app.config import Settings, get_settings
 from app.context.conversation_service import ConversationService, ConversationStateError
 from app.context.date_resolver import DateResolver
-from app.context.entity_resolver import EntityResolver
+from app.context.dialog_manager import DialogTurnManager
+from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
 from app.context.pending_action_service import PendingActionError, PendingActionService
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
@@ -51,6 +52,7 @@ from app.tools import build_tool_registry
 from app.tools.executor import ToolExecutor
 from app.tools.response_formatter import ToolResponseFormatter
 from app.workflows import build_workflow_registry
+from app.workflows.slot_manager import SlotManager
 
 logger = logging.getLogger("app.requests")
 
@@ -93,6 +95,7 @@ def create_app(
             resolved_settings,
         )
         llm_client: OllamaLlmClient | GroqLlmClient | None = None
+        selector_llm_client: OllamaLlmClient | GroqLlmClient | None = None
         embedding_provider: OllamaEmbeddingProvider | None = None
         database: Database | None = None
         checkpoint_context: object | None = None
@@ -100,7 +103,14 @@ def create_app(
             application.state.chat_pipeline = chat_pipeline
         else:
             registry = build_tool_registry()
-            llm_client = build_llm_client(resolved_settings)
+            llm_client = build_llm_client(
+                resolved_settings,
+                purpose="classifier",
+            )
+            selector_llm_client = build_llm_client(
+                resolved_settings,
+                purpose="selector",
+            )
             embedding_provider = OllamaEmbeddingProvider(resolved_settings)
             database = Database(resolved_settings.database_url)
             query_normalizer = QueryNormalizer()
@@ -118,7 +128,11 @@ def create_app(
                 fetch_k=resolved_settings.tool_fetch_k,
                 min_score=resolved_settings.tool_min_score,
             )
-            selector = ToolSelector(llm_client, registry, resolved_settings)
+            selector = ToolSelector(
+                selector_llm_client,
+                registry,
+                resolved_settings,
+            )
             argument_resolver = ArgumentResolver()
             validator = ToolSelectionValidator(registry, resolved_settings)
             executor = ToolExecutor(registry, application.state.odoo_client)
@@ -130,7 +144,9 @@ def create_app(
                 tool_selector=selector,
                 argument_resolver=argument_resolver,
                 date_resolver=DateResolver(),
+                dialog_turn_manager=DialogTurnManager(),
                 entity_resolver=EntityResolver(),
+                business_entity_resolver=BusinessEntityResolver(),
                 validator=validator,
                 tool_executor=executor,
                 response_formatter=formatter,
@@ -144,6 +160,7 @@ def create_app(
                     resolved_settings.pending_execution_lease_seconds,
                 ),
                 workflow_registry=build_workflow_registry(),
+                slot_manager=SlotManager(),
                 tool_registry=registry,
                 settings=resolved_settings,
             )
@@ -197,6 +214,8 @@ def create_app(
         finally:
             if llm_client is not None:
                 await llm_client.close()
+            if selector_llm_client is not None:
+                await selector_llm_client.close()
             if embedding_provider is not None:
                 await embedding_provider.close()
             if database is not None:

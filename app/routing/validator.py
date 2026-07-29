@@ -48,7 +48,8 @@ class ToolSelectionValidator:
             return self._result(
                 issues=[
                     ValidationIssue(
-                        code="NO_TOOL_SELECTED",
+                        code="NO_MATCHING_TOOL",
+                        category="routing",
                         message="Không có tool phù hợp.",
                     )
                 ],
@@ -59,7 +60,8 @@ class ToolSelectionValidator:
             return self._result(
                 issues=[
                     ValidationIssue(
-                        code="TOOL_OUTSIDE_CANDIDATES",
+                        code="TOOL_NOT_ALLOWED",
+                        category="security",
                         field="selected_tool",
                         message="Tool không nằm trong candidate allowlist.",
                     )
@@ -73,6 +75,7 @@ class ToolSelectionValidator:
                 issues=[
                     ValidationIssue(
                         code="TOOL_NOT_REGISTERED",
+                        category="routing",
                         field="selected_tool",
                         message="Tool không tồn tại trong registry.",
                     )
@@ -83,6 +86,7 @@ class ToolSelectionValidator:
             issues.append(
                 ValidationIssue(
                     code="TOOL_DISABLED",
+                    category="routing",
                     field="selected_tool",
                     message="Tool đang bị vô hiệu hóa.",
                 )
@@ -91,6 +95,7 @@ class ToolSelectionValidator:
             issues.append(
                 ValidationIssue(
                     code="DOMAIN_MISMATCH",
+                    category="routing",
                     field="selected_tool",
                     message="Domain của tool không khớp classification.",
                 )
@@ -102,6 +107,7 @@ class ToolSelectionValidator:
             issues.append(
                 ValidationIssue(
                     code="ROUTE_MISMATCH",
+                    category="routing",
                     field="selected_tool",
                     message="Route của tool không khớp classification.",
                 )
@@ -110,25 +116,19 @@ class ToolSelectionValidator:
         if classification.scope.value not in supported_scopes:
             issues.append(
                 ValidationIssue(
-                    code="SCOPE_NOT_SUPPORTED",
+                    code="SCOPE_NOT_ALLOWED",
+                    category="security",
                     field="scope",
                     message="Tool không hỗ trợ scope được yêu cầu.",
                 )
             )
-        if candidate.score < self._min_score:
-            issues.append(
-                ValidationIssue(
-                    code="CANDIDATE_SCORE_TOO_LOW",
-                    field="score",
-                    message="Candidate score dưới ngưỡng.",
-                )
-            )
-
         threshold = self._threshold(tool.risk_level)
-        if selection.confidence < threshold:
+        low_confidence = selection.confidence < threshold
+        if low_confidence:
             issues.append(
                 ValidationIssue(
-                    code="SELECTION_CONFIDENCE_TOO_LOW",
+                    code="LOW_CONFIDENCE",
+                    category="confidence",
                     field="confidence",
                     message="Độ tin cậy chọn tool dưới ngưỡng.",
                 )
@@ -144,7 +144,8 @@ class ToolSelectionValidator:
         ):
             issues.append(
                 ValidationIssue(
-                    code="CANDIDATE_MARGIN_TOO_LOW",
+                    code="ROUTING_AMBIGUOUS",
+                    category="routing",
                     field="score",
                     message="Các candidate đầu quá gần nhau.",
                 )
@@ -152,7 +153,8 @@ class ToolSelectionValidator:
         for field in resolution.rejected_trusted_fields:
             issues.append(
                 ValidationIssue(
-                    code="TRUSTED_FIELD_REJECTED",
+                    code="TRUSTED_FIELD_INJECTION",
+                    category="security",
                     field=field,
                     message="Trusted context không được lấy từ LLM.",
                 )
@@ -162,11 +164,14 @@ class ToolSelectionValidator:
             resolution.missing_arguments
             or resolution.ambiguous_arguments
             or selection.requires_clarification
+            or low_confidence
+            or any(issue.code == "ROUTING_AMBIGUOUS" for issue in issues)
         )
         for field in resolution.missing_arguments:
             issues.append(
                 ValidationIssue(
                     code="MISSING_REQUIRED_ARGUMENT",
+                    category="arguments",
                     field=field,
                     message="Thiếu argument bắt buộc.",
                 )
@@ -175,6 +180,7 @@ class ToolSelectionValidator:
             issues.append(
                 ValidationIssue(
                     code="AMBIGUOUS_ARGUMENT",
+                    category="arguments",
                     field=field,
                     message="Argument chưa đủ rõ.",
                 )
@@ -201,7 +207,8 @@ class ToolSelectionValidator:
                     )
                     issues.append(
                         ValidationIssue(
-                            code="INVALID_ARGUMENT",
+                            code="INVALID_ARGUMENTS",
+                            category="arguments",
                             field=error_field,
                             message="Argument không đúng schema.",
                         )
@@ -211,7 +218,12 @@ class ToolSelectionValidator:
             issue
             for issue in issues
             if issue.code
-            not in {"MISSING_REQUIRED_ARGUMENT", "AMBIGUOUS_ARGUMENT"}
+            not in {
+                "MISSING_REQUIRED_ARGUMENT",
+                "AMBIGUOUS_ARGUMENT",
+                "LOW_CONFIDENCE",
+                "ROUTING_AMBIGUOUS",
+            }
         ]
         requires_confirmation = is_write and not clarification and not blocking
         valid = not blocking and not clarification

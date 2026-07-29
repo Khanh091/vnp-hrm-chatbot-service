@@ -103,7 +103,8 @@ def test_debug_routing_does_not_call_odoo_or_business_tool() -> None:
 
     assert response.status_code == 200
     body: dict[str, Any] = response.json()
-    assert body["classification"]["primary_domain"] == "leave"
+    assert body["classification"]["domain"] == "leave"
+    assert body["classification"]["route"] == "data_query"
     assert body["candidates"][0]["tool_name"] == "leave_get_balance"
     assert odoo_client.context_calls == 0
     assert service.messages == ["  Tôi còn bao nhiêu ngày phép?  "]

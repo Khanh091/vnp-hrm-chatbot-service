@@ -1,27 +1,33 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any, Protocol, TypeVar
+import logging
+from time import perf_counter
+from typing import Any, Literal, Protocol, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
 from app.config import Settings
+from app.llm.exceptions import (
+    LlmAuthenticationError,
+    LlmBadRequestError,
+    LlmConnectionError,
+    LlmPermissionError,
+    LlmProviderError,
+    LlmRateLimitError,
+    LlmStructuredOutputError,
+    LlmTimeoutError,
+)
+from app.llm.exceptions import (
+    LlmClientError as BaseLlmClientError,
+)
 from app.llm.structured_output import parse_structured_output
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
-
-
-class LlmClientError(RuntimeError):
-    pass
-
-
-class LlmTimeoutError(LlmClientError):
-    pass
-
-
-class LlmRateLimitError(LlmClientError):
-    pass
+logger = logging.getLogger(__name__)
+LlmClientError = BaseLlmClientError
 
 
 class StructuredOutputClient(Protocol):
@@ -31,6 +37,8 @@ class StructuredOutputClient(Protocol):
         system_prompt: str,
         user_prompt: str,
         schema: type[SchemaT],
+        operation: str = "structured_completion",
+        request_id: str | None = None,
     ) -> SchemaT: ...
 
 
@@ -59,6 +67,8 @@ class OllamaLlmClient:
         system_prompt: str,
         user_prompt: str,
         schema: type[SchemaT],
+        operation: str = "structured_completion",
+        request_id: str | None = None,
     ) -> SchemaT:
         response_schema = schema.model_json_schema()
         response_schema["required"] = list(
@@ -80,17 +90,21 @@ class OllamaLlmClient:
             response = await self._client.post("/api/chat", json=payload)
             response.raise_for_status()
         except httpx.TimeoutException as error:
-            raise LlmTimeoutError("Ollama classification timed out") from error
+            raise LlmTimeoutError("Ollama structured request timed out") from error
         except httpx.HTTPError as error:
-            raise LlmClientError("Ollama classification request failed") from error
+            raise LlmConnectionError("Ollama structured request failed") from error
 
         try:
             body = response.json()
             content = body["message"]["content"]
         except (KeyError, TypeError, ValueError) as error:
-            raise LlmClientError("Ollama returned an invalid chat response") from error
+            raise LlmStructuredOutputError(
+                "Ollama returned an invalid chat response"
+            ) from error
         if not isinstance(content, str):
-            raise LlmClientError("Ollama returned non-text chat content")
+            raise LlmStructuredOutputError(
+                "Ollama returned non-text chat content"
+            )
         return parse_structured_output(content, schema)
 
 
@@ -99,11 +113,17 @@ class GroqLlmClient:
         self,
         settings: Settings,
         *,
+        model: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         if settings.groq_api_key is None:
             raise ValueError("GROQ_API_KEY is required")
-        self._model = settings.groq_chat_model
+        self._model = model or settings.groq_chat_model
+        self._temperature = settings.groq_temperature
+        self._reasoning_effort = settings.groq_reasoning_effort
+        self._max_retries = settings.llm_max_retries
+        self._max_retry_after = settings.llm_max_retry_after_seconds
+        self._repair_attempts = settings.llm_structured_repair_attempts
         self._authorization = (
             "Bearer " + settings.groq_api_key.get_secret_value()
         )
@@ -113,6 +133,10 @@ class GroqLlmClient:
             headers={"Content-Type": "application/json"},
             timeout=httpx.Timeout(settings.groq_timeout_seconds),
         )
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     async def close(self) -> None:
         if self._owns_client:
@@ -124,6 +148,8 @@ class GroqLlmClient:
         system_prompt: str,
         user_prompt: str,
         schema: type[SchemaT],
+        operation: str = "structured_completion",
+        request_id: str | None = None,
     ) -> SchemaT:
         response_schema = schema.model_json_schema()
         response_schema["required"] = list(
@@ -131,7 +157,7 @@ class GroqLlmClient:
         )
         payload: dict[str, Any] = {
             "model": self._model,
-            "temperature": 0.1,
+            "temperature": self._temperature,
             "max_completion_tokens": 1024,
             "messages": [
                 {
@@ -139,7 +165,11 @@ class GroqLlmClient:
                     "content": (
                         system_prompt
                         + "\n\nJSON Schema bắt buộc:\n"
-                        + json.dumps(response_schema, ensure_ascii=False)
+                        + json.dumps(
+                            response_schema,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
                     ),
                 },
                 {"role": "user", "content": user_prompt},
@@ -147,42 +177,230 @@ class GroqLlmClient:
             "response_format": {"type": "json_object"},
         }
         if self._model.startswith("qwen/"):
-            payload["reasoning_effort"] = "none"
-        if self._model.startswith("groq/compound"):
-            # Classification and tool selection never need Groq's web/code
-            # tools; disabling them prevents data egress and extra latency.
+            payload["reasoning_effort"] = self._reasoning_effort
+        elif self._model.startswith("openai/gpt-oss-"):
+            payload["reasoning_effort"] = "low"
+        if "compound" in self._model.lower():
             payload["tool_choice"] = "none"
+        started = perf_counter()
+        response: httpx.Response | None = None
         try:
-            response = await self._client.post(
-                "/chat/completions",
-                json=payload,
-                headers={"Authorization": self._authorization},
-            )
-            response.raise_for_status()
-        except httpx.TimeoutException as error:
-            raise LlmTimeoutError("Groq structured request timed out") from error
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code == 429:
-                raise LlmRateLimitError(
-                    "Groq rate limit exceeded"
-                ) from error
-            raise LlmClientError("Groq structured request failed") from error
-        except httpx.HTTPError as error:
-            raise LlmClientError("Groq structured request failed") from error
-
-        try:
+            response = await self._request_with_retry(payload)
             body = response.json()
-            content = body["choices"][0]["message"]["content"]
-        except (IndexError, KeyError, TypeError, ValueError) as error:
-            raise LlmClientError("Groq returned an invalid chat response") from error
-        if not isinstance(content, str):
-            raise LlmClientError("Groq returned non-text chat content")
-        return parse_structured_output(content, schema)
+            message = body["choices"][0]["message"]
+            if message.get("refusal"):
+                raise LlmStructuredOutputError("Groq refused structured output")
+            content = message["content"]
+            if not isinstance(content, str):
+                raise LlmStructuredOutputError(
+                    "Groq returned non-text chat content"
+                )
+            try:
+                return parse_structured_output(content, schema)
+            except LlmStructuredOutputError:
+                if self._repair_attempts == 0:
+                    raise
+                repair_payload = dict(payload)
+                repair_payload["messages"] = [
+                    *payload["messages"],
+                    {
+                        "role": "assistant",
+                        "content": content[:2000],
+                    },
+                    {
+                        "role": "user",
+                        "content": "Sửa JSON trên để khớp schema. Chỉ trả JSON.",
+                    },
+                ]
+                repaired = await self._request_with_retry(
+                    repair_payload,
+                    allow_retry=False,
+                )
+                repaired_body = repaired.json()
+                repaired_content = repaired_body["choices"][0]["message"][
+                    "content"
+                ]
+                if not isinstance(repaired_content, str):
+                    raise LlmStructuredOutputError(
+                        "Groq repair returned non-text content"
+                    ) from None
+                return parse_structured_output(repaired_content, schema)
+        except (
+            LlmClientError,
+            IndexError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
+            mapped = (
+                error
+                if isinstance(error, LlmClientError)
+                else LlmStructuredOutputError(
+                    "Groq returned an invalid chat response"
+                )
+            )
+            self._log_failure(
+                mapped,
+                operation=operation,
+                request_id=request_id,
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+            if mapped is error:
+                raise mapped from error.__cause__
+            raise mapped from error
+
+    async def _request_with_retry(
+        self,
+        payload: dict[str, Any],
+        *,
+        allow_retry: bool = True,
+    ) -> httpx.Response:
+        attempts = 0
+        while True:
+            try:
+                response = await self._client.post(
+                    "/chat/completions",
+                    json=payload,
+                    headers={"Authorization": self._authorization},
+                )
+            except httpx.TimeoutException as error:
+                raise LlmTimeoutError(
+                    "Groq structured request timed out"
+                ) from error
+            except httpx.HTTPError as error:
+                raise LlmConnectionError(
+                    "Groq structured connection failed"
+                ) from error
+            if response.is_success:
+                return response
+            mapped = self._map_http_error(response)
+            retry_delay = self._retry_delay(mapped, attempts)
+            if (
+                not allow_retry
+                or attempts >= self._max_retries
+                or retry_delay is None
+            ):
+                raise mapped
+            attempts += 1
+            if retry_delay:
+                await asyncio.sleep(retry_delay)
+
+    def _retry_delay(
+        self,
+        error: LlmClientError,
+        attempts: int,
+    ) -> float | None:
+        if attempts >= self._max_retries:
+            return None
+        if isinstance(error, LlmRateLimitError):
+            delay = error.retry_after_seconds
+            if delay is None or delay > self._max_retry_after:
+                return None
+            return delay
+        if isinstance(error, LlmProviderError) and error.http_status in {
+            502,
+            503,
+            504,
+        }:
+            return 0.2
+        return None
+
+    @staticmethod
+    def _map_http_error(response: httpx.Response) -> LlmClientError:
+        status = response.status_code
+        code: str | None = None
+        try:
+            error_payload = response.json().get("error", {})
+            if isinstance(error_payload, dict):
+                raw_code = error_payload.get("code") or error_payload.get("type")
+                code = str(raw_code)[:80] if raw_code is not None else None
+        except (TypeError, ValueError):
+            pass
+        retry_after: float | None = None
+        raw_retry_after = response.headers.get("Retry-After")
+        if raw_retry_after:
+            try:
+                retry_after = max(0.0, float(raw_retry_after))
+            except ValueError:
+                retry_after = None
+        if status == 400:
+            return LlmBadRequestError(
+                "Groq rejected the request",
+                http_status=status,
+                provider_error_code=code,
+                retry_after_seconds=retry_after,
+            )
+        if status == 401:
+            return LlmAuthenticationError(
+                "Groq authentication failed",
+                http_status=status,
+                provider_error_code=code,
+                retry_after_seconds=retry_after,
+            )
+        if status == 403:
+            return LlmPermissionError(
+                "Groq permission denied",
+                http_status=status,
+                provider_error_code=code,
+                retry_after_seconds=retry_after,
+            )
+        if status == 408:
+            return LlmTimeoutError(
+                "Groq request timed out",
+                http_status=status,
+                provider_error_code=code,
+                retry_after_seconds=retry_after,
+            )
+        if status == 429:
+            return LlmRateLimitError(
+                "Groq rate limit exceeded",
+                http_status=status,
+                provider_error_code=code,
+                retry_after_seconds=retry_after,
+            )
+        return LlmProviderError(
+            "Groq provider request failed",
+            http_status=status,
+            provider_error_code=code,
+            retry_after_seconds=retry_after,
+        )
+
+    def _log_failure(
+        self,
+        error: LlmClientError,
+        *,
+        operation: str,
+        request_id: str | None,
+        latency_ms: float,
+    ) -> None:
+        logger.warning(
+            "llm_request_failed provider=groq model=%s operation=%s "
+            "http_status=%s provider_error_type=%s provider_error_code=%s "
+            "retry_after_seconds=%s request_id=%s latency_ms=%.2f",
+            self._model,
+            operation,
+            error.http_status,
+            type(error).__name__,
+            error.provider_error_code,
+            error.retry_after_seconds,
+            request_id,
+            latency_ms,
+        )
 
 
 def build_llm_client(
     settings: Settings,
+    *,
+    purpose: Literal["classifier", "selector", "response"] = "classifier",
 ) -> OllamaLlmClient | GroqLlmClient:
     if settings.llm_provider == "groq":
-        return GroqLlmClient(settings)
+        model = {
+            "classifier": settings.groq_classifier_model,
+            "selector": settings.groq_selector_model,
+            "response": settings.groq_response_model,
+        }[purpose]
+        return GroqLlmClient(
+            settings,
+            model=model or settings.groq_chat_model,
+        )
     return OllamaLlmClient(settings)

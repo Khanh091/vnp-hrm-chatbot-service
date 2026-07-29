@@ -82,7 +82,8 @@ async def _run_pipeline(
         )
     if request.clarification is not None:
         return await pipeline.process(
-            request.clarification.label,
+            request.clarification.label
+            or str(request.clarification.value),
             trusted_context,
             clarification=request.clarification.model_dump(mode="json"),
         )
