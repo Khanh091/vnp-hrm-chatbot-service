@@ -4,23 +4,93 @@ services:
     container_name: vnpt-hrm-chatbot-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: hrm_chatbot
-      POSTGRES_USER: hrm_chatbot
-      POSTGRES_PASSWORD: hrm_chatbot_password
+      POSTGRES_DB: ${CHATBOT_POSTGRES_DB:-hrm_chatbot}
+      POSTGRES_USER: ${CHATBOT_POSTGRES_USER:-hrm_chatbot}
+      POSTGRES_PASSWORD: ${CHATBOT_POSTGRES_PASSWORD:-hrm_chatbot_password}
       TZ: Asia/Bangkok
     ports:
-      - "5434:5432"
+      - "${CHATBOT_POSTGRES_PORT:-5434}:5432"
     volumes:
       - hrm_chatbot_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U hrm_chatbot -d hrm_chatbot"
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
         ]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vnpt-hrm-chatbot-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - hrm_chatbot_ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  ollama-models:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:1.7b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama pull "$$OLLAMA_EMBEDDING_MODEL"
+        if [ "$$LLM_PROVIDER" = "ollama" ]; then
+          ollama pull "$$OLLAMA_CHAT_MODEL"
+        fi
+
+  api:
+    image: vnpt-hrm-chatbot-api:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vnpt-hrm-chatbot-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: >-
+        postgresql+psycopg://${CHATBOT_POSTGRES_USER:-hrm_chatbot}:${CHATBOT_POSTGRES_PASSWORD:-hrm_chatbot_password}@chatbot-postgres:5432/${CHATBOT_POSTGRES_DB:-hrm_chatbot}
+      OLLAMA_BASE_URL: http://ollama:11434
+      ODOO_BASE_URL: ${ODOO_DOCKER_BASE_URL:-http://host.docker.internal:8069}
+    ports:
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      chatbot-postgres:
+        condition: service_healthy
+      ollama-models:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://localhost:$${APP_PORT:-8000}/api/v1/health > /dev/null"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
 volumes:
   hrm_chatbot_postgres_data:
+  hrm_chatbot_ollama_data:
+    name: ${OLLAMA_VOLUME_NAME:-ollama}

@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: vnpt-hrm-chatbot-service
+Version: 0.1.0
+Summary: FastAPI orchestration service for the VNPT HRM chatbot
+Requires-Python: >=3.10
+Requires-Dist: alembic<2,>=1.14
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: httpx<1,>=0.27
+Requires-Dist: dateparser<2,>=1.2
+Requires-Dist: langgraph<1.3,>=1.2
+Requires-Dist: langgraph-checkpoint-postgres<4,>=3.1
+Requires-Dist: pgvector<1,>=0.3
+Requires-Dist: psycopg[binary]<4,>=3.2
+Requires-Dist: pydantic<3,>=2.10
+Requires-Dist: pydantic-settings<3,>=2.7
+Requires-Dist: PyYAML<7,>=6
+Requires-Dist: SQLAlchemy[asyncio]<3,>=2.0
+Requires-Dist: tenacity<10,>=9
+Requires-Dist: uvicorn[standard]<1,>=0.34
+Provides-Extra: dev
+Requires-Dist: mypy<2,>=1.14; extra == "dev"
+Requires-Dist: pytest<10,>=8.3; extra == "dev"
+Requires-Dist: pytest-asyncio<2,>=0.25; extra == "dev"
+Requires-Dist: ruff<1,>=0.9; extra == "dev"
+Requires-Dist: types-PyYAML<7,>=6; extra == "dev"

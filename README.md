@@ -38,6 +38,49 @@ thực tế. Không commit `.env`. API key không được ghi log hoặc trả 
 
 Lệnh trên dùng `APP_HOST`, `APP_PORT` và `APP_DEBUG` từ `.env`.
 
+## Chạy toàn bộ stack bằng Docker Compose
+
+Stack gồm:
+
+- `api`: FastAPI; tự chạy `alembic upgrade head` trước khi khởi động.
+- `chatbot-postgres`: PostgreSQL 16 + pgvector.
+- `ollama`: Ollama server dùng volume bền vững.
+- `ollama-models`: pull embedding model và thoát. Chat model chỉ được pull khi
+  `LLM_PROVIDER=ollama`.
+
+Nếu trước đây Ollama được chạy thủ công với container tên `ollama`, dừng và
+xóa container cũ trước để giải phóng port. Named volume `ollama` vẫn được giữ
+và Compose sẽ tái sử dụng:
+
+```powershell
+docker stop ollama
+docker rm ollama
+docker compose up --build -d
+```
+
+Kiểm tra trạng thái và log:
+
+```powershell
+docker compose ps
+docker compose logs -f api
+curl.exe http://localhost:8000/api/v1/health
+```
+
+Index tool metadata sau migration hoặc khi catalog thay đổi:
+
+```powershell
+docker compose run --rm api python -m scripts.index_tools
+```
+
+FastAPI container truy cập Odoo chạy trên Windows host qua:
+
+```env
+ODOO_DOCKER_BASE_URL=http://host.docker.internal:8069
+```
+
+Khi chạy FastAPI trực tiếp ngoài Docker, service tiếp tục dùng
+`ODOO_BASE_URL`, `DATABASE_URL` và `OLLAMA_BASE_URL` dạng `localhost`.
+
 ## Kiểm tra
 
 ```powershell
@@ -81,5 +124,5 @@ Response thành công:
 }
 ```
 
-Phạm vi hiện tại chưa triển khai LLM routing, tool registry, tool selection,
-SSE hay LangGraph. Cấu trúc đã chừa điểm mở rộng cho các bước đó.
+Service hiện đã có LLM routing, tool registry, tool selection, LangGraph,
+conversation persistence và SSE.
