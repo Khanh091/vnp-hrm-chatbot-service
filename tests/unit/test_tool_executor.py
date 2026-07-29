@@ -138,6 +138,25 @@ async def test_trusted_user_context_is_injected_and_endpoint_is_allowlisted() ->
 
 
 @pytest.mark.asyncio
+async def test_scope_control_field_is_not_a_business_argument() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["odoo_user_id"] == "42"
+        assert "scope" not in request.url.params
+        return httpx.Response(
+            200,
+            content=envelope(data={"department": {"name": "Phòng CNTT"}}),
+        )
+
+    result = await run_with_handler(
+        handler,
+        "profile_get_employment",
+        {"scope": "self"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
 async def test_input_cannot_override_trusted_user_id() -> None:
     called = False
 
@@ -152,7 +171,7 @@ async def test_input_cannot_override_trusted_user_id() -> None:
         {"odoo_user_id": 999},
     )
 
-    assert result.error_code == "INVALID_ARGUMENTS"
+    assert result.error_code == "TRUSTED_FIELD_INJECTION"
     assert called is False
 
 
@@ -219,6 +238,28 @@ async def test_odoo_business_error_becomes_typed_failure() -> None:
     assert result.success is False
     assert result.error_code == "INSUFFICIENT_LEAVE_BALANCE"
     assert result.error_message == "Insufficient leave balance"
+
+
+@pytest.mark.asyncio
+async def test_odoo_access_denied_code_is_preserved() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            content=envelope(
+                success=False,
+                code="ACCESS_DENIED",
+                message="Forbidden",
+            ),
+        )
+
+    result = await run_with_handler(
+        handler,
+        "profile_get_contact",
+        {},
+    )
+
+    assert result.success is False
+    assert result.error_code == "ACCESS_DENIED"
 
 
 @pytest.mark.asyncio

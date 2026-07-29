@@ -71,6 +71,9 @@ async def resolve_arguments_node(
                 **state.get("workflow_data", {}),
                 "transient_entities": resolution.transient_entities,
                 "slot_issues": slot_issues,
+                "rejected_trusted_fields": (
+                    resolution.rejected_trusted_fields
+                ),
             },
         }
     )

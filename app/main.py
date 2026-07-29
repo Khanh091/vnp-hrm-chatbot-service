@@ -48,6 +48,7 @@ from app.routing.query_normalizer import QueryNormalizer
 from app.routing.service import RoutingService
 from app.routing.tool_selector import ToolSelector
 from app.routing.validator import ToolSelectionValidator
+from app.security.authorization import AuthorizationPolicyService
 from app.tools import build_tool_registry
 from app.tools.executor import ToolExecutor
 from app.tools.response_formatter import ToolResponseFormatter
@@ -148,6 +149,7 @@ def create_app(
                 entity_resolver=EntityResolver(),
                 business_entity_resolver=BusinessEntityResolver(),
                 validator=validator,
+                authorization_policy=AuthorizationPolicyService(registry),
                 tool_executor=executor,
                 response_formatter=formatter,
                 conversation_service=ConversationService(

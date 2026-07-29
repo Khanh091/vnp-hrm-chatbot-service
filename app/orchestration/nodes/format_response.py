@@ -2,6 +2,7 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.error_messages import category_for_error, public_error_message
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState, ChatResponseType
@@ -19,13 +20,12 @@ async def format_response_node(
 ) -> dict[str, object]:
     started = perf_counter()
     if state.get("response_type") is not None:
-        update = stage_update(
+        return stage_update(
             state,
             event="response_ready",
             timing_name="response_formatting_ms",
             started=started,
         )
-        return update
     result_data = state.get("tool_result")
     if not result_data:
         return {
@@ -42,10 +42,12 @@ async def format_response_node(
     result = ToolExecutionResult.model_validate(result_data)
     if not result.success:
         response_type = ChatResponseType.ERROR
-        text = "Không thể thực hiện yêu cầu HRM lúc này."
+        category = category_for_error(result.error_code)
+        text = public_error_message(result.error_code, category)
         data = {
             "tool_name": result.tool_name,
             "error_code": result.error_code,
+            "category": category.value,
         }
     else:
         response_type = ChatResponseType.ANSWER

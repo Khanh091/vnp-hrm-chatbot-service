@@ -40,10 +40,29 @@ class OdooConnectionError(OdooError):
             code=ResponseCode.ODOO_CONNECTION_ERROR,
             message=message,
             status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+            odoo_error_code="ODOO_CONNECTION_ERROR",
+        )
+
+
+class OdooTimeoutError(OdooConnectionError):
+    def __init__(self) -> None:
+        super().__init__("Odoo request timed out")
+        self.odoo_error_code = "ODOO_TIMEOUT"
+
+
+class OdooContractError(OdooError):
+    def __init__(self, message: str = "Odoo returned an invalid response") -> None:
+        super().__init__(
+            code=ResponseCode.ODOO_CONNECTION_ERROR,
+            message=message,
+            status_code=HTTPStatus.BAD_GATEWAY,
+            odoo_error_code="ODOO_CONTRACT_ERROR",
         )
 
 
 class OdooBusinessError(OdooError):
+    """Compatibility base for callers that catch all Odoo business failures."""
+
     def __init__(
         self,
         *,
@@ -59,3 +78,37 @@ class OdooBusinessError(OdooError):
             odoo_error_code=odoo_error_code,
             details=details,
         )
+
+
+class OdooAccessDeniedError(OdooBusinessError):
+    def __init__(
+        self,
+        message: str = "Access denied by Odoo",
+        details: dict[str, Any] | None = None,
+        odoo_error_code: str = "ACCESS_DENIED",
+    ) -> None:
+        super().__init__(
+            odoo_error_code=odoo_error_code,
+            message=message,
+            details=details,
+            status_code=HTTPStatus.FORBIDDEN,
+        )
+
+
+class OdooRecordNotFoundError(OdooBusinessError):
+    def __init__(
+        self,
+        message: str = "Record not found",
+        details: dict[str, Any] | None = None,
+        odoo_error_code: str = "RECORD_NOT_FOUND",
+    ) -> None:
+        super().__init__(
+            odoo_error_code=odoo_error_code,
+            message=message,
+            details=details,
+            status_code=HTTPStatus.NOT_FOUND,
+        )
+
+
+class OdooBusinessValidationError(OdooBusinessError):
+    pass

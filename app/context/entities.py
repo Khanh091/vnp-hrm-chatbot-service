@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.routing.taxonomy import SubjectScope
+
 
 class TemporalEntities(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -64,3 +66,17 @@ class ExtractedEntities(BaseModel):
         if forbidden.intersection(value):
             raise ValueError("technical IDs are not extractable entities")
         return value
+
+
+class ResolvedSubject(BaseModel):
+    """A subject resolved by trusted context, structured UI, or an Odoo lookup."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: SubjectScope
+    employee_id: int | None = Field(default=None, gt=0)
+    employee_name: str | None = Field(default=None, max_length=200)
+    employee_code: str | None = Field(default=None, max_length=100)
+    source: str = Field(
+        pattern=r"^(trusted_context|structured_option|odoo_lookup)$"
+    )

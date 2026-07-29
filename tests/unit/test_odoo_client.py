@@ -5,8 +5,11 @@ import pytest
 
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import (
+    OdooAccessDeniedError,
     OdooBusinessError,
-    OdooConnectionError,
+    OdooContractError,
+    OdooRecordNotFoundError,
+    OdooTimeoutError,
 )
 from tests.conftest import build_settings
 
@@ -69,7 +72,7 @@ async def test_odoo_timeout() -> None:
         transport=httpx.MockTransport(handler),
     )
     try:
-        with pytest.raises(OdooConnectionError, match="timed out"):
+        with pytest.raises(OdooTimeoutError, match="timed out"):
             await client.health("request-1")
     finally:
         await client.close()
@@ -98,3 +101,49 @@ async def test_odoo_error_envelope() -> None:
         await client.close()
 
     assert error.value.odoo_error_code == "USER_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "code", "exception_type"),
+    [
+        (403, "ACCESS_DENIED", OdooAccessDeniedError),
+        (404, "RECORD_NOT_FOUND", OdooRecordNotFoundError),
+    ],
+)
+async def test_odoo_authority_errors_are_typed(
+    status: int,
+    code: str,
+    exception_type: type[Exception],
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status,
+            content=envelope(success=False, code=code, message=code),
+        )
+
+    client = OdooClient(
+        build_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(exception_type):
+            await client.health("request-1")
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_invalid_odoo_envelope_is_contract_error() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": True})
+
+    client = OdooClient(
+        build_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(OdooContractError):
+            await client.health("request-1")
+    finally:
+        await client.close()

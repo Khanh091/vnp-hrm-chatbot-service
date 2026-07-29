@@ -62,6 +62,7 @@ class ChatGraphState(TypedDict, total=False):
     candidate_contexts: list[dict[str, Any]]
     selection: dict[str, Any]
     validation: dict[str, Any]
+    authorization: dict[str, Any]
     pending_tool_name: str | None
     collected_arguments: dict[str, Any]
     missing_arguments: list[str]

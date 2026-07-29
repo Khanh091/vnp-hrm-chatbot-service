@@ -6,9 +6,13 @@ from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
 from app.integrations.odoo.exceptions import (
+    OdooAccessDeniedError,
     OdooAuthenticationError,
-    OdooBusinessError,
+    OdooBusinessValidationError,
     OdooConnectionError,
+    OdooContractError,
+    OdooRecordNotFoundError,
+    OdooTimeoutError,
 )
 from app.integrations.odoo.schemas import (
     CurrentUserContextRequest,
@@ -128,14 +132,14 @@ class OdooClient:
                 params=params,
             )
         except httpx.TimeoutException as error:
-            raise OdooConnectionError("Odoo request timed out") from error
+            raise OdooTimeoutError() from error
         except httpx.RequestError as error:
             raise OdooConnectionError() from error
 
         try:
             envelope = OdooEnvelope.model_validate(response.json())
         except (ValueError, ValidationError) as error:
-            raise OdooConnectionError(
+            raise OdooContractError(
                 "Odoo returned an invalid response",
             ) from error
 
@@ -150,7 +154,7 @@ class OdooClient:
         try:
             return response_model.model_validate(envelope.data)
         except ValidationError as error:
-            raise OdooConnectionError(
+            raise OdooContractError(
                 "Odoo returned invalid response data",
             ) from error
 
@@ -161,13 +165,28 @@ class OdooClient:
     ) -> None:
         if envelope.code == "UNAUTHORIZED" or status_code == HTTPStatus.UNAUTHORIZED:
             raise OdooAuthenticationError(envelope.code)
+        if envelope.code == "ACCESS_DENIED" or status_code == HTTPStatus.FORBIDDEN:
+            raise OdooAccessDeniedError(
+                envelope.message,
+                envelope.details,
+                envelope.code,
+            )
+        if (
+            envelope.code == "RECORD_NOT_FOUND"
+            or status_code == HTTPStatus.NOT_FOUND
+        ):
+            raise OdooRecordNotFoundError(
+                envelope.message,
+                envelope.details,
+                envelope.code,
+            )
 
         client_status = (
             status_code
             if HTTPStatus.BAD_REQUEST <= status_code < HTTPStatus.INTERNAL_SERVER_ERROR
             else HTTPStatus.BAD_GATEWAY
         )
-        raise OdooBusinessError(
+        raise OdooBusinessValidationError(
             odoo_error_code=envelope.code,
             message=envelope.message,
             details=envelope.details,

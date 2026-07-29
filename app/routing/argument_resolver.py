@@ -17,7 +17,14 @@ _TRUSTED_FIELDS = {
     "conversation_id",
     "timezone",
 }
-_CONTROL_FIELDS = {"scope", "domain", "operation", "route_type"}
+_CONTROL_FIELDS = {
+    "scope",
+    "route",
+    "route_type",
+    "intent",
+    "domain",
+    "operation",
+}
 _SERVER_FIELDS = {"idempotency_key"}
 _QUESTIONS = {
     "date": "Bạn muốn xem dữ liệu của ngày nào?",

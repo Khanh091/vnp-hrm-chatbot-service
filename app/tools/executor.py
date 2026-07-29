@@ -18,6 +18,31 @@ from app.tools.registry import ToolNotFoundError, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+_CONTROL_FIELDS = {
+    "scope",
+    "route",
+    "route_type",
+    "intent",
+    "domain",
+    "operation",
+}
+_TRUSTED_FIELDS = {
+    "odoo_user_id",
+    "employee_id",
+    "company_id",
+    "conversation_id",
+    "timezone",
+    "language",
+}
+_FORBIDDEN_EXECUTION_FIELDS = {
+    "endpoint",
+    "url",
+    "model",
+    "odoo_model",
+    "orm_domain",
+    "sudo",
+}
+
 
 class ToolExecutor:
     def __init__(self, registry: ToolRegistry, odoo_client: OdooClient) -> None:
@@ -61,8 +86,29 @@ class ToolExecutor:
                     tool_name, error_code, "Tool is disabled", started
                 )
 
+            business_arguments = dict(arguments)
+            for field in _CONTROL_FIELDS:
+                business_arguments.pop(field, None)
+            if _TRUSTED_FIELDS.intersection(business_arguments):
+                error_code = "TRUSTED_FIELD_INJECTION"
+                return self._failure(
+                    tool_name,
+                    error_code,
+                    "Trusted execution fields cannot come from arguments",
+                    started,
+                )
+            if _FORBIDDEN_EXECUTION_FIELDS.intersection(business_arguments):
+                error_code = "SECURITY_REJECTED"
+                return self._failure(
+                    tool_name,
+                    error_code,
+                    "Arbitrary execution metadata is forbidden",
+                    started,
+                )
             try:
-                validated = tool.argument_schema.model_validate(arguments)
+                validated = tool.argument_schema.model_validate(
+                    business_arguments
+                )
             except ValidationError:
                 error_code = "INVALID_ARGUMENTS"
                 return self._failure(

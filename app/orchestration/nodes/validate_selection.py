@@ -2,6 +2,7 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.error_messages import public_error_message
 from app.context.conversation import ConversationStatus
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
@@ -15,6 +16,7 @@ from app.routing.schemas import (
     QueryClassification,
     ToolCandidateContext,
     ToolSelection,
+    ValidationIssueCategory,
 )
 
 
@@ -23,18 +25,12 @@ async def validate_selection_node(
 ) -> dict[str, object]:
     started = perf_counter()
     if not state.get("pending_tool_name"):
-        return {
-            **stage_update(
-                state,
-                event="selection_validation_failed",
-                timing_name="validation_ms",
-                started=started,
-            ),
-            "workflow_status": WorkflowStatus.FAILED,
-            "response_type": ChatResponseType.ERROR,
-            "response_text": "Không còn ngữ cảnh tool hợp lệ.",
-            "response_data": {"reason_code": "PENDING_TOOL_NOT_FOUND"},
-        }
+        return _terminal_error(
+            state,
+            started,
+            "PENDING_TOOL_NOT_FOUND",
+            "Không còn ngữ cảnh tool hợp lệ.",
+        )
     workflow_data = state.get("workflow_data", {})
     classification_data = state.get("classification") or workflow_data.get(
         "classification"
@@ -43,22 +39,20 @@ async def validate_selection_node(
         "candidate_contexts", []
     )
     if not classification_data or not contexts_data:
-        return {
-            **stage_update(
-                state,
-                event="selection_validation_failed",
-                timing_name="validation_ms",
-                started=started,
-            ),
-            "workflow_status": WorkflowStatus.FAILED,
-            "response_type": ChatResponseType.ERROR,
-            "response_text": "Ngữ cảnh làm rõ không còn hợp lệ.",
-            "response_data": {"reason_code": "CLARIFICATION_CONTEXT_MISSING"},
-        }
+        return _terminal_error(
+            state,
+            started,
+            "CLARIFICATION_CONTEXT_MISSING",
+            "Ngữ cảnh làm rõ không còn hợp lệ.",
+        )
+
     resolution = ArgumentResolution(
         arguments=state.get("collected_arguments", {}),
         missing_arguments=state.get("missing_arguments", []),
         ambiguous_arguments=state.get("ambiguous_arguments", []),
+        rejected_trusted_fields=workflow_data.get(
+            "rejected_trusted_fields", []
+        ),
     )
     slot_issues = workflow_data.get("slot_issues", [])
     if slot_issues:
@@ -76,9 +70,9 @@ async def validate_selection_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.ERROR,
-            "response_text": "Khoảng ngày hoặc thông tin đã nhập chưa hợp lệ.",
+            "response_text": public_error_message("INVALID_ARGUMENT"),
             "response_data": {
-                "reason_code": "INVALID_ARGUMENTS",
+                "reason_code": "INVALID_ARGUMENT",
                 "issues": slot_issues,
             },
             "pending_tool_name": None,
@@ -87,6 +81,7 @@ async def validate_selection_node(
             "ambiguous_arguments": [],
             "workflow_data": {},
         }
+
     result = runtime.context.validator.validate(
         ToolSelection.model_validate(state["selection"]),
         resolution,
@@ -94,10 +89,32 @@ async def validate_selection_node(
             classification_data
         ),
         candidates=[
-            ToolCandidateContext.model_validate(item)
-            for item in contexts_data
+            ToolCandidateContext.model_validate(item) for item in contexts_data
         ],
     )
+    security = runtime.context.authorization_policy.validate_security(
+        resolution.arguments,
+        rejected_trusted_fields=resolution.rejected_trusted_fields,
+    )
+    if not security.valid:
+        all_errors = list(result.errors)
+        known = {(issue.code, issue.field) for issue in all_errors}
+        all_errors.extend(
+            issue
+            for issue in security.issues
+            if (issue.code, issue.field) not in known
+        )
+        result = result.model_copy(
+            update={
+                "valid": False,
+                "can_execute": False,
+                "requires_clarification": False,
+                "requires_confirmation": False,
+                "errors": all_errors,
+                "security": security,
+            }
+        )
+
     if result.requires_clarification:
         status = WorkflowStatus.CLARIFICATION_REQUIRED
     elif result.requires_confirmation:
@@ -127,26 +144,45 @@ async def validate_selection_node(
             status=ConversationStatus.FAILED,
         )
         categories = {issue.category for issue in result.errors}
-        if "security" in categories:
-            response_text = "Bạn không có quyền thực hiện yêu cầu này."
-            public_code = "ACCESS_DENIED"
-        elif "arguments" in categories:
-            response_text = "Thông tin đầu vào chưa hợp lệ."
-            public_code = "INVALID_ARGUMENTS"
+        if ValidationIssueCategory.SECURITY in categories:
+            public_code = "SECURITY_REJECTED"
+            category = ValidationIssueCategory.SECURITY
+        elif ValidationIssueCategory.ARGUMENT in categories:
+            public_code = "INVALID_ARGUMENT"
+            category = ValidationIssueCategory.ARGUMENT
         else:
-            response_text = "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu."
             public_code = "ROUTING_AMBIGUOUS"
+            category = ValidationIssueCategory.ROUTING
         update.update(
             {
                 "response_type": ChatResponseType.ERROR,
-                "response_text": response_text,
+                "response_text": public_error_message(public_code, category),
                 "response_data": {
                     "reason_code": public_code,
                     "issues": [
-                        issue.model_dump(mode="json")
-                        for issue in result.errors
-                    ]
+                        issue.model_dump(mode="json") for issue in result.errors
+                    ],
                 },
             }
         )
     return update
+
+
+def _terminal_error(
+    state: ChatGraphState,
+    started: float,
+    reason_code: str,
+    message: str,
+) -> dict[str, object]:
+    return {
+        **stage_update(
+            state,
+            event="selection_validation_failed",
+            timing_name="validation_ms",
+            started=started,
+        ),
+        "workflow_status": WorkflowStatus.FAILED,
+        "response_type": ChatResponseType.ERROR,
+        "response_text": message,
+        "response_data": {"reason_code": reason_code},
+    }

@@ -97,7 +97,7 @@ def test_extra_argument_is_blocked() -> None:
     )
 
     assert result.valid is False
-    assert any(issue.code == "INVALID_ARGUMENTS" for issue in result.errors)
+    assert any(issue.code == "INVALID_ARGUMENT" for issue in result.errors)
 
 
 def test_trusted_override_is_blocked() -> None:
@@ -133,4 +133,4 @@ def test_invalid_date_range_is_blocked() -> None:
     )
 
     assert result.valid is False
-    assert any(issue.code == "INVALID_ARGUMENTS" for issue in result.errors)
+    assert any(issue.code == "INVALID_ARGUMENT" for issue in result.errors)

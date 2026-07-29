@@ -12,6 +12,7 @@ from app.routing.query_classifier import QueryClassifier
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.tool_selector import ToolSelector
 from app.routing.validator import ToolSelectionValidator
+from app.security.authorization import AuthorizationPolicyService
 from app.tools.executor import ToolExecutor
 from app.tools.registry import ToolRegistry
 from app.tools.response_formatter import ToolResponseFormatter
@@ -31,6 +32,7 @@ class GraphContext:
     entity_resolver: EntityResolver
     business_entity_resolver: BusinessEntityResolver
     validator: ToolSelectionValidator
+    authorization_policy: AuthorizationPolicyService
     tool_executor: ToolExecutor
     response_formatter: ToolResponseFormatter
     conversation_service: ConversationService

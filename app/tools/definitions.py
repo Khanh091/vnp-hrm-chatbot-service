@@ -45,6 +45,9 @@ class HttpMethod(str, Enum):
 
 class SubjectScope(str, Enum):
     SELF = "self"
+    NAMED_EMPLOYEE = "named_employee"
+    DEPARTMENT = "department"
+    COMPANY = "company"
 
 
 class ToolArguments(BaseModel):

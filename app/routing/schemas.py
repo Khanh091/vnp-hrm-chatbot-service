@@ -295,16 +295,58 @@ class ResolvedDateRange(BaseModel):
     resolution_type: str
 
 
+class ValidationIssueCategory(str, Enum):
+    ROUTING = "routing"
+    ARGUMENT = "argument"
+    AUTHORIZATION = "authorization"
+    SECURITY = "security"
+    PROVIDER = "provider"
+    BUSINESS = "business"
+
+    @classmethod
+    def _missing_(cls, value: object) -> ValidationIssueCategory | None:
+        if not isinstance(value, str):
+            return None
+        legacy = {
+            "arguments": cls.ARGUMENT,
+            "confidence": cls.ROUTING,
+            "policy": cls.AUTHORIZATION,
+        }
+        return legacy.get(value)
+
+
 class ValidationIssue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
-    category: str = Field(
-        default="routing",
-        pattern=r"^(security|routing|confidence|arguments|policy)$",
-    )
+    category: ValidationIssueCategory = ValidationIssueCategory.ROUTING
     field: str | None = None
     message: str
+
+
+class RoutingValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    valid: bool
+    issues: list[ValidationIssue] = Field(default_factory=list)
+
+
+class ArgumentValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    valid: bool
+    requires_clarification: bool = False
+    normalized_arguments: dict[str, Any] = Field(default_factory=dict)
+    missing_arguments: list[str] = Field(default_factory=list)
+    ambiguous_arguments: list[str] = Field(default_factory=list)
+    issues: list[ValidationIssue] = Field(default_factory=list)
+
+
+class SecurityValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    valid: bool
+    issues: list[ValidationIssue] = Field(default_factory=list)
 
 
 class ToolValidationResult(BaseModel):
@@ -316,3 +358,6 @@ class ToolValidationResult(BaseModel):
     requires_confirmation: bool
     normalized_arguments: dict[str, Any] = Field(default_factory=dict)
     errors: list[ValidationIssue] = Field(default_factory=list)
+    routing: RoutingValidationResult | None = None
+    arguments: ArgumentValidationResult | None = None
+    security: SecurityValidationResult | None = None
