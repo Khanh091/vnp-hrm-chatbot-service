@@ -15,14 +15,14 @@ from app.routing.taxonomy import Operation, QueryRoute, SubjectScope, SubjectTyp
 
 
 def _subject_from_hints(hints: RuleHints) -> SubjectMention:
-    if hints.named_employee_reference:
+    if hints.self_reference:
+        subject_type = SubjectType.SELF
+    elif hints.named_employee_reference:
         subject_type = SubjectType.EMPLOYEE
     elif hints.department_reference:
         subject_type = SubjectType.DEPARTMENT
     elif hints.company_reference:
         subject_type = SubjectType.COMPANY
-    elif hints.self_reference:
-        subject_type = SubjectType.SELF
     else:
         subject_type = SubjectType.GENERAL
     return SubjectMention(type=subject_type)

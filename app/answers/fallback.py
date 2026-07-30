@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+import unicodedata
 from typing import Any
 
 from app.answers.schemas import FinalAnswerContext
 from app.routing.taxonomy import Intent
+
+logger = logging.getLogger(__name__)
 
 
 class DeterministicAnswerFallback:
@@ -50,6 +54,96 @@ class DeterministicAnswerFallback:
                 if count in {0, "0", None}
                 else f"{period}bạn có {count} lần đi muộn."
             )
+        if context.intent is Intent.PROFILE_PARTY_UNION:
+            query = self._fold(context.original_query)
+            if "so the dang" in query:
+                value = data.get("party_card_number")
+                return (
+                    f"Số thẻ Đảng đang được lưu của bạn là {value}."
+                    if value
+                    else "Hệ thống chưa lưu số thẻ Đảng của bạn."
+                )
+            if "is_party_member" in data:
+                value = data["is_party_member"]
+                if value is True:
+                    return "Bạn hiện được ghi nhận là Đảng viên."
+                if value is False:
+                    return "Bạn hiện không được ghi nhận là Đảng viên."
+                return (
+                    "Hệ thống chưa lưu thông tin về việc bạn có là "
+                    "Đảng viên hay không."
+                )
+        if context.intent is Intent.PROFILE_EDUCATION:
+            query = self._fold(context.original_query)
+            fields = (
+                (
+                    ("giao duc pho thong",),
+                    "general_education",
+                    "Trình độ giáo dục phổ thông của bạn là {}.",
+                ),
+                (
+                    ("chuyen nganh",),
+                    "major",
+                    "Chuyên ngành đang được lưu của bạn là {}.",
+                ),
+                (
+                    ("co so dao tao",),
+                    "institution",
+                    "Cơ sở đào tạo đang được lưu của bạn là {}.",
+                ),
+            )
+            for concepts, key, template in fields:
+                if any(concept in query for concept in concepts):
+                    value = data.get(key)
+                    return (
+                        template.format(value)
+                        if value
+                        else "Hệ thống chưa lưu thông tin đó."
+                    )
+            level = data.get("highest_professional_level")
+            training_form = data.get("training_form")
+            major = data.get("major")
+            details = [
+                str(value)
+                for value in (level, training_form, major)
+                if value
+            ]
+            return (
+                "Thông tin trình độ đào tạo của bạn: "
+                + ", ".join(details)
+                + "."
+                if details
+                else "Hệ thống chưa lưu thông tin trình độ đào tạo của bạn."
+            )
+        if context.intent is Intent.PROFILE_ADDRESS:
+            query = self._fold(context.original_query)
+            if "que quan" in query:
+                hometown = data.get("hometown")
+                return (
+                    f"Quê quán đang được lưu của bạn là {hometown}."
+                    if hometown
+                    else "Hệ thống chưa lưu thông tin quê quán của bạn."
+                )
+            current = data.get("current_address")
+            if isinstance(current, dict):
+                address = (
+                    current.get("full_address")
+                    or ", ".join(
+                        str(value)
+                        for value in (
+                            current.get("detail"),
+                            current.get("ward"),
+                            current.get("province"),
+                        )
+                        if value
+                    )
+                )
+                if address:
+                    return (
+                        "Nơi ở hiện nay của bạn được lưu tại "
+                        f"{address}."
+                    )
+            return "Hệ thống chưa lưu thông tin nơi ở hiện nay của bạn."
         records = data.get("records")
         if isinstance(records, list):
             return (
@@ -65,7 +159,14 @@ class DeterministicAnswerFallback:
                     if value is None
                     else f"Thông tin được ghi nhận là {value}."
                 )
-        return "Đã có dữ liệu phù hợp, nhưng chưa thể diễn đạt chi tiết lúc này."
+        logger.warning(
+            "deterministic_answer_fallback "
+            "reason_code=UNSUPPORTED_DETERMINISTIC_FORMAT intent=%s "
+            "tool_name=%s",
+            context.intent.value,
+            context.tool_name,
+        )
+        return "Hệ thống đã tìm thấy dữ liệu phù hợp với yêu cầu của bạn."
 
     @staticmethod
     def _nested(data: dict[str, object], key: str) -> Any:
@@ -79,3 +180,16 @@ class DeterministicAnswerFallback:
             name = value.get("name") or value.get("display_name")
             return str(name) if name else None
         return None
+
+    @staticmethod
+    def _fold(value: str) -> str:
+        decomposed = unicodedata.normalize("NFD", value.lower())
+        return " ".join(
+            "".join(
+                character
+                for character in decomposed
+                if unicodedata.category(character) != "Mn"
+            )
+            .replace("đ", "d")
+            .split()
+        )

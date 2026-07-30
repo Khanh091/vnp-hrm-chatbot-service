@@ -77,7 +77,8 @@ _SEMANTIC_RULES = (
             r"sinh hoat doan)\b"
         ),
         candidate_intents=(Intent.PROFILE_PARTY_UNION,),
-        confidence=0.95,
+        confidence=0.99,
+        is_exclusive=True,
     ),
     SemanticRule(
         concept="profile_education",
@@ -87,7 +88,8 @@ _SEMANTIC_RULES = (
             r"chuyen nganh|co so dao tao|trinh do dao tao)\b"
         ),
         candidate_intents=(Intent.PROFILE_EDUCATION,),
-        confidence=0.94,
+        confidence=0.99,
+        is_exclusive=True,
     ),
     SemanticRule(
         concept="profile_training_history",
@@ -105,7 +107,8 @@ _SEMANTIC_RULES = (
             r"que quan|noi sinh|dia chi hien tai)\b"
         ),
         candidate_intents=(Intent.PROFILE_ADDRESS,),
-        confidence=0.95,
+        confidence=0.99,
+        is_exclusive=True,
     ),
     SemanticRule(
         concept="profile_identity_attributes",
@@ -220,7 +223,7 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
         _NAMED_EMPLOYEE.search(normalized.original_text)
         or _ASCII_NAMED_CONTEXT.search(folded)
     )
-    self_reference = bool(_SELF.search(folded)) and not named_reference
+    self_reference = bool(_SELF.search(folded))
     department_reference = bool(_DEPARTMENT.search(folded))
     company_reference = bool(_COMPANY.search(folded))
 

@@ -45,21 +45,21 @@ class _ClassifierClient:
             Intent.PROFILE_PARTY_UNION,
             Domain.PROFILE,
             SubjectScope.SELF,
-            False,
+            True,
         ),
         (
             "trình độ giáo dục phổ thông của tôi",
             Intent.PROFILE_EDUCATION,
             Domain.PROFILE,
             SubjectScope.SELF,
-            False,
+            True,
         ),
         (
             "trình độ đào tạo của tôi",
             Intent.PROFILE_EDUCATION,
             Domain.PROFILE,
             SubjectScope.SELF,
-            False,
+            True,
         ),
         (
             "lịch sử đào tạo bồi dưỡng của tôi",
@@ -73,7 +73,7 @@ class _ClassifierClient:
             Intent.PROFILE_ADDRESS,
             Domain.PROFILE,
             SubjectScope.SELF,
-            False,
+            True,
         ),
         (
             "ngày cấp CCCD của tôi",
@@ -147,4 +147,3 @@ async def test_semantic_routing_cases(
             for item in hint.candidate_intents
         }
         assert hinted == {Intent.DIRECTORY_EMPLOYEE_DEPARTMENT}
-
