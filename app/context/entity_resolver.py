@@ -93,6 +93,16 @@ class EntityResolver:
         r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})"
         r"\s+(?:ở|thuộc|làm việc)\b",
     )
+    _PROFILE_EMPLOYEE = re.compile(
+        r"(?:\bcủa\s+|\b)"
+        r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*"
+        r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})"
+        r"\s+(?:ở|thuộc|làm việc|vào|đã|có|được)\b",
+    )
+    _POSSESSIVE_EMPLOYEE = re.compile(
+        r"\bcủa\s+(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*"
+        r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})\s*[?.!]*$",
+    )
     _DEPARTMENT = re.compile(
         r"\b(?:phòng|ban|đơn vị)\s+"
         r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ]*(?:\s+[\wÀ-ỹĐđ/-]+){0,8})",
@@ -196,6 +206,8 @@ class EntityResolver:
         employee = self._EMPLOYEE.search(normalized)
         bare_employee = self._BARE_EMPLOYEE.search(normalized)
         department = self._DEPARTMENT.search(normalized)
+        profile_employee = self._PROFILE_EMPLOYEE.search(normalized)
+        possessive_employee = self._POSSESSIVE_EMPLOYEE.search(normalized)
         recency: Literal["latest", "previous", "first", "last"] | None = (
             "latest"
             if re.search(r"\b(?:gần nhất|mới nhất)\b", normalized, re.I)
@@ -242,6 +254,10 @@ class EntityResolver:
             if employee
             else bare_employee.group("name")
             if bare_employee
+            else profile_employee.group("name")
+            if profile_employee
+            else possessive_employee.group("name")
+            if possessive_employee
             else None
         )
         subject_type = (
@@ -291,7 +307,12 @@ class EntityResolver:
 
     def resolve(self, text: str) -> ResolvedEntities:
         request = self._REQUEST_CODE.search(text)
-        employee = self._EMPLOYEE.search(text) or self._BARE_EMPLOYEE.search(text)
+        employee = (
+            self._EMPLOYEE.search(text)
+            or self._BARE_EMPLOYEE.search(text)
+            or self._PROFILE_EMPLOYEE.search(text)
+            or self._POSSESSIVE_EMPLOYEE.search(text)
+        )
         department = self._DEPARTMENT.search(text)
         scope = (
             SubjectScope.NAMED_EMPLOYEE

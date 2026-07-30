@@ -27,9 +27,27 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
         "employee_get_employment",
     ),
     Intent.PROFILE_CONTACT: ("profile_get_contact",),
+    Intent.PROFILE_IDENTITY: (
+        "profile_get_identity",
+        "employee_get_identity",
+    ),
+    Intent.PROFILE_ADDRESS: (
+        "profile_get_addresses",
+        "employee_get_addresses",
+    ),
+    Intent.PROFILE_RECRUITMENT: (
+        "profile_get_recruitment",
+        "employee_get_recruitment",
+    ),
     Intent.PROFILE_WORK_HISTORY: ("profile_get_history",),
-    Intent.PROFILE_APPOINTMENT_HISTORY: ("profile_get_history",),
-    Intent.PROFILE_TRANSFER_HISTORY: ("profile_get_history",),
+    Intent.PROFILE_APPOINTMENT_HISTORY: (
+        "profile_get_appointment_history",
+        "employee_get_appointment_history",
+    ),
+    Intent.PROFILE_TRANSFER_HISTORY: (
+        "profile_get_transfer_history",
+        "employee_get_transfer_history",
+    ),
     Intent.PROFILE_HISTORY: ("profile_get_history",),
     Intent.PROFILE_EDUCATION: ("profile_get_education",),
     Intent.PROFILE_CERTIFICATES: ("profile_get_certificates",),
@@ -41,7 +59,10 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
         "profile_get_bank_accounts",
         "profile_get_tax",
     ),
-    Intent.PROFILE_TRAINING_HISTORY: ("profile_get_education",),
+    Intent.PROFILE_TRAINING_HISTORY: (
+        "profile_get_training_history",
+        "employee_get_training_history",
+    ),
     Intent.PROFILE_CONTRACTS: ("profile_get_contracts",),
     Intent.PROFILE_CONTRACT_EXPIRY: ("profile_get_contracts",),
     Intent.ATTENDANCE_DAILY: ("attendance_get_daily",),

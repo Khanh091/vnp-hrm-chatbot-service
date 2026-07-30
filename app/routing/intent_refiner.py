@@ -2,18 +2,82 @@ from __future__ import annotations
 
 import re
 
+from app.context.entity_resolver import EntityResolver
 from app.routing.schemas import Domain, QueryClassification
 from app.routing.taxonomy import (
     Intent,
     Operation,
     QueryRoute,
     SubjectScope,
+    SubjectType,
 )
 
 _READ_REFINEMENTS: tuple[
     tuple[re.Pattern[str], Domain, Intent, SubjectScope | None],
     ...,
 ] = (
+    (
+        re.compile(
+            r"\b(?:CCCD|CMND|căn cước|số căn cước|ngày cấp|nơi cấp|"
+            r"quốc tịch|dân tộc|tôn giáo|giới tính|"
+            r"tình trạng hôn nhân|tên gọi khác)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_IDENTITY,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:hộ khẩu|thường trú|nơi ở hiện tại|địa chỉ|quê quán|"
+            r"nơi sinh|sống ở đâu)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_ADDRESS,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:ngày tuyển dụng|hình thức tuyển dụng|ngày vào công ty|"
+            r"vào TCT|ngày vào đơn vị|cơ quan tuyển dụng|"
+            r"sở trường công tác)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_RECRUITMENT,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:đào tạo bồi dưỡng|khóa học|cam kết đào tạo|"
+            r"lịch sử đào tạo)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_TRAINING_HISTORY,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:bổ nhiệm|lịch sử bổ nhiệm|quá trình giữ chức|"
+            r"quyết định bổ nhiệm)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_APPOINTMENT_HISTORY,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:điều chuyển|luân chuyển|chuyển đơn vị|"
+            r"lịch sử điều chuyển)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_TRANSFER_HISTORY,
+        None,
+    ),
     (
         re.compile(
             r"\b(?:danh sách|liệt kê|những)\s+"
@@ -168,6 +232,10 @@ def refine_read_intent(
         return classification
     for pattern, domain, intent, scope in _READ_REFINEMENTS:
         if pattern.search(query):
+            subject = EntityResolver().extract_subject(query)
+            if domain is Domain.PROFILE and subject.type is SubjectType.EMPLOYEE:
+                domain = Domain.DIRECTORY
+                scope = SubjectScope.NAMED_EMPLOYEE
             update: dict[str, object] = {
                 "route": QueryRoute.DATA_QUERY,
                 "domain": domain,

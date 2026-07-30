@@ -283,8 +283,6 @@ DIRECTORY_TOOLS = (
             {
                 Intent.PROFILE_WORK_HISTORY,
                 Intent.PROFILE_HISTORY,
-                Intent.PROFILE_APPOINTMENT_HISTORY,
-                Intent.PROFILE_TRANSFER_HISTORY,
             }
         ),
         endpoint="work-history",
@@ -374,5 +372,145 @@ DIRECTORY_TOOLS = (
             "Danh sách nhân viên phòng Kế toán.",
         ),
         sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_identity",
+        capability=Intent.PROFILE_IDENTITY,
+        intents=frozenset({Intent.PROFILE_IDENTITY}),
+        endpoint="identity",
+        description=(
+            "Tra cứu nhóm định danh đã được mask của một nhân viên đã resolve: "
+            "căn cước, ngày/nơi cấp, quốc tịch, dân tộc, tôn giáo và hôn nhân."
+        ),
+        examples=(
+            "Dân tộc của Lò Văn Định.",
+            "CCCD của nhân viên đó cấp ngày nào?",
+            "Quốc tịch của nhân viên mã 00234086.",
+            "Tình trạng hôn nhân của người vừa tìm.",
+            "Nơi cấp căn cước của cán bộ này.",
+            "dan toc cua lo van dinh",
+        ),
+        negative_examples=(
+            "Dân tộc của tôi.",
+            "Địa chỉ của Lò Văn Định.",
+            "Nhân viên nào có chứng chỉ AWS?",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_addresses",
+        capability=Intent.PROFILE_ADDRESS,
+        intents=frozenset({Intent.PROFILE_ADDRESS}),
+        endpoint="addresses",
+        description=(
+            "Tra cứu hộ khẩu, thường trú, nơi ở hiện tại, quê quán và nơi sinh "
+            "của một nhân viên đã resolve."
+        ),
+        examples=(
+            "Nơi ở hiện tại của Lò Văn Định.",
+            "Địa chỉ thường trú của nhân viên đó.",
+            "Hộ khẩu của nhân viên mã 00234086.",
+            "Quê quán của người vừa tìm.",
+            "Cán bộ này đang sống ở đâu?",
+            "dia chi cua lo van dinh",
+        ),
+        negative_examples=(
+            "Nơi ở hiện tại của tôi.",
+            "Đơn vị công tác của Lò Văn Định.",
+            "Danh sách nhân viên phòng Kế toán.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_recruitment",
+        capability=Intent.PROFILE_RECRUITMENT,
+        intents=frozenset({Intent.PROFILE_RECRUITMENT}),
+        endpoint="recruitment",
+        description=(
+            "Tra cứu ngày/hình thức tuyển dụng, ngày vào TCT hoặc đơn vị và "
+            "cơ quan tuyển dụng của một nhân viên đã resolve."
+        ),
+        examples=(
+            "Lò Văn Định vào TCT từ ngày nào?",
+            "Ngày tuyển dụng của nhân viên đó.",
+            "Hình thức tuyển dụng của nhân viên mã 00234086.",
+            "Cơ quan nào đã tuyển người vừa tìm?",
+            "Ngày cán bộ này vào đơn vị.",
+            "lo van dinh vao tct tu ngay nao",
+        ),
+        negative_examples=(
+            "Tôi vào TCT từ ngày nào?",
+            "Hợp đồng của Lò Văn Định hết hạn khi nào?",
+            "Lịch sử điều chuyển của nhân viên đó.",
+        ),
+    ),
+    _named_profile_tool(
+        name="employee_get_training_history",
+        capability=Intent.PROFILE_TRAINING_HISTORY,
+        intents=frozenset({Intent.PROFILE_TRAINING_HISTORY}),
+        endpoint="training-history",
+        description=(
+            "Tra cứu lịch sử đào tạo bồi dưỡng, khóa học và cam kết đào tạo "
+            "của một nhân viên đã resolve."
+        ),
+        examples=(
+            "Lịch sử đào tạo của Lò Văn Định.",
+            "Nhân viên đó từng học những khóa nào?",
+            "Quá trình bồi dưỡng của nhân viên mã 00234086.",
+            "Cam kết đào tạo của người vừa tìm.",
+            "Các khóa học cán bộ này đã tham gia.",
+            "lich su dao tao cua lo van dinh",
+        ),
+        negative_examples=(
+            "Lịch sử đào tạo của tôi.",
+            "Trình độ học vấn của Lò Văn Định.",
+            "Chứng chỉ của nhân viên đó.",
+        ),
+    ),
+    _named_profile_tool(
+        name="employee_get_appointment_history",
+        capability=Intent.PROFILE_APPOINTMENT_HISTORY,
+        intents=frozenset({Intent.PROFILE_APPOINTMENT_HISTORY}),
+        endpoint="appointment-history",
+        description=(
+            "Tra cứu lịch sử bổ nhiệm, quá trình giữ chức và quyết định bổ "
+            "nhiệm của một nhân viên đã resolve."
+        ),
+        examples=(
+            "Lịch sử bổ nhiệm của Lò Văn Định.",
+            "Nhân viên đó từng giữ chức vụ nào?",
+            "Quá trình giữ chức của nhân viên mã 00234086.",
+            "Quyết định bổ nhiệm của người vừa tìm.",
+            "Cán bộ này đã được bổ nhiệm những lần nào?",
+            "lich su bo nhiem cua lo van dinh",
+        ),
+        negative_examples=(
+            "Quá trình bổ nhiệm của tôi.",
+            "Chức danh hiện tại của Lò Văn Định.",
+            "Lịch sử điều chuyển của nhân viên đó.",
+        ),
+    ),
+    _named_profile_tool(
+        name="employee_get_transfer_history",
+        capability=Intent.PROFILE_TRANSFER_HISTORY,
+        intents=frozenset({Intent.PROFILE_TRANSFER_HISTORY}),
+        endpoint="transfer-history",
+        description=(
+            "Tra cứu lịch sử điều chuyển, luân chuyển và chuyển đơn vị của một "
+            "nhân viên đã resolve."
+        ),
+        examples=(
+            "Lò Văn Định đã từng điều chuyển chưa?",
+            "Lịch sử luân chuyển của nhân viên đó.",
+            "Nhân viên mã 00234086 đã chuyển đơn vị những lần nào?",
+            "Quá trình điều chuyển của người vừa tìm.",
+            "Cán bộ này từng công tác tại các đơn vị nào?",
+            "lo van dinh da tung dieu chuyen chua",
+        ),
+        negative_examples=(
+            "Lịch sử điều chuyển của tôi.",
+            "Đơn vị hiện tại của Lò Văn Định.",
+            "Quá trình bổ nhiệm của nhân viên đó.",
+        ),
     ),
 )

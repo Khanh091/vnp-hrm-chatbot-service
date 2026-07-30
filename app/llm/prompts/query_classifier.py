@@ -39,6 +39,18 @@ Phân biệt profile:
 - lịch sử điều chuyển => profile.transfer_history
 - hợp đồng tổng quan/lịch sử => profile.contracts
 - ngày hết hạn/kết thúc hợp đồng => profile.contract_expiry
+- CCCD/CMND/căn cước, ngày-nơi cấp, quốc tịch, dân tộc, tôn giáo, giới tính,
+  tình trạng hôn nhân, tên gọi khác => profile.identity
+- hộ khẩu, thường trú, nơi ở hiện tại, địa chỉ, quê quán, nơi sinh =>
+  profile.address
+- ngày/hình thức tuyển dụng, ngày vào công ty/TCT/đơn vị, cơ quan tuyển dụng,
+  sở trường công tác => profile.recruitment
+- đào tạo bồi dưỡng, khóa học, cam kết hoặc lịch sử đào tạo =>
+  profile.training_history
+- bổ nhiệm, quá trình giữ chức, quyết định hoặc lịch sử bổ nhiệm =>
+  profile.appointment_history
+- điều chuyển, luân chuyển, chuyển đơn vị hoặc lịch sử điều chuyển =>
+  profile.transfer_history
 
 Phân biệt leave:
 - còn lại => leave.balance; đã dùng => leave.used; danh sách đơn => leave.history

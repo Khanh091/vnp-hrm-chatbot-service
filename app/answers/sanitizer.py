@@ -19,6 +19,14 @@ _BLOCKED_KEYS = {
     "api_key",
     "access_token",
     "session_cookie",
+    "attachment",
+    "attachments",
+    "binary",
+    "file",
+    "files",
+    "file_content",
+    "datas",
+    "raw_data",
 }
 
 

@@ -51,6 +51,13 @@ _ADMIN_NEW_INTENT = re.compile(
     r"\b(?:hợp đồng).*(?:sắp hết hạn|đến hạn|hết hạn trong)\b",
     re.I,
 )
+_PROFILE_BATCH2_NEW_INTENT = re.compile(
+    r"\b(?:CCCD|CMND|căn cước|quốc tịch|dân tộc|tôn giáo|"
+    r"tình trạng hôn nhân|hộ khẩu|thường trú|nơi ở hiện tại|"
+    r"quê quán|nơi sinh|tuyển dụng|vào TCT|đào tạo|khóa học|"
+    r"bổ nhiệm|giữ chức|điều chuyển|luân chuyển|chuyển đơn vị)\b",
+    re.I,
+)
 
 
 class DialogTurnManager:
@@ -75,6 +82,8 @@ class DialogTurnManager:
         if _NAMED_EMPLOYEE_QUERY.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _ADMIN_NEW_INTENT.search(text):
+            return TurnType.NEW_QUERY_OVERRIDE
+        if _PROFILE_BATCH2_NEW_INTENT.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _CLEAR_NEW_INTENT.search(text) and (
             _QUERY_OR_COMMAND.search(text)

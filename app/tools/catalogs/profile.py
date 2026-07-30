@@ -22,6 +22,7 @@ def _profile_tool(
     negative_examples: tuple[str, ...],
     intents: frozenset[Intent] = frozenset(),
     sensitive: bool = False,
+    base: str = _BASE,
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
@@ -34,7 +35,7 @@ def _profile_tool(
             RiskLevel.SENSITIVE_READ if sensitive else RiskLevel.READ
         ),
         description=description,
-        endpoint=f"{_BASE}/{endpoint}",
+        endpoint=f"{base}/{endpoint}",
         http_method=HttpMethod.GET,
         argument_schema=NoArguments,
         examples=examples,
@@ -304,6 +305,158 @@ PROFILE_TOOLS = (
             "Ngày tôi chính thức vào đơn vị.",
             "Lịch sử thay đổi chức danh của tôi.",
             "Tôi còn bao nhiêu ngày phép?",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_identity",
+        capability=Intent.PROFILE_IDENTITY.value,
+        intents=frozenset({Intent.PROFILE_IDENTITY}),
+        description=(
+            "Tra cứu nhóm thông tin định danh cá nhân gồm căn cước, ngày/nơi "
+            "cấp, quốc tịch, dân tộc, tôn giáo, giới tính và hôn nhân."
+        ),
+        endpoint="identity",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Dân tộc của tôi đang được lưu là gì?",
+            "CCCD của tôi được cấp ngày nào?",
+            "Nơi cấp căn cước của tôi.",
+            "Quốc tịch và tôn giáo của tôi.",
+            "Tình trạng hôn nhân trong hồ sơ của tôi.",
+            "so can cuoc cua toi",
+            "dan toc cua toi",
+        ),
+        negative_examples=(
+            "Địa chỉ thường trú của tôi.",
+            "Email công việc của tôi.",
+            "Nhân viên nào có chứng chỉ AWS?",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_addresses",
+        capability=Intent.PROFILE_ADDRESS.value,
+        intents=frozenset({Intent.PROFILE_ADDRESS}),
+        description=(
+            "Tra cứu nhóm địa chỉ gồm hộ khẩu, thường trú, nơi ở hiện tại, "
+            "quê quán và nơi sinh của chính người dùng."
+        ),
+        endpoint="addresses",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Nơi ở hiện tại của tôi là đâu?",
+            "Địa chỉ thường trú của tôi.",
+            "Hộ khẩu của tôi đang lưu thế nào?",
+            "Quê quán và nơi sinh của tôi.",
+            "Tôi đang sống ở đâu theo hồ sơ?",
+            "noi o hien tai cua toi",
+            "dia chi thuong tru cua toi",
+        ),
+        negative_examples=(
+            "Đơn vị công tác của tôi.",
+            "Nơi cấp căn cước của tôi.",
+            "Danh sách nhân viên phòng Kế toán.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_recruitment",
+        capability=Intent.PROFILE_RECRUITMENT.value,
+        intents=frozenset({Intent.PROFILE_RECRUITMENT}),
+        description=(
+            "Tra cứu thông tin tuyển dụng: ngày và hình thức tuyển dụng, ngày "
+            "vào công ty/TCT/đơn vị, cơ quan tuyển dụng và sở trường công tác."
+        ),
+        endpoint="recruitment",
+        base="/api/v1/hrm/profile/current",
+        examples=(
+            "Tôi được tuyển dụng ngày nào?",
+            "Hình thức tuyển dụng của tôi.",
+            "Tôi vào TCT từ ngày nào?",
+            "Ngày tôi vào đơn vị hiện tại.",
+            "Cơ quan nào tuyển dụng tôi?",
+            "ngay vao tct cua toi",
+            "hinh thuc tuyen dung cua toi",
+        ),
+        negative_examples=(
+            "Hợp đồng của tôi hết hạn khi nào?",
+            "Chức danh hiện tại của tôi.",
+            "Lịch sử điều chuyển của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_training_history",
+        capability=Intent.PROFILE_TRAINING_HISTORY.value,
+        intents=frozenset({Intent.PROFILE_TRAINING_HISTORY}),
+        description=(
+            "Tra cứu lịch sử đào tạo bồi dưỡng, khóa học và cam kết đào tạo "
+            "của chính người dùng."
+        ),
+        endpoint="training-history",
+        base="/api/v1/hrm/profile/current",
+        examples=(
+            "Lịch sử đào tạo của tôi.",
+            "Tôi đã tham gia những khóa học nào?",
+            "Quá trình đào tạo bồi dưỡng của tôi.",
+            "Các cam kết đào tạo của tôi.",
+            "Cho xem những đợt bồi dưỡng đã tham gia.",
+            "lich su dao tao cua toi",
+            "khoa hoc cua toi",
+        ),
+        negative_examples=(
+            "Trình độ học vấn của tôi.",
+            "Chứng chỉ nghề nghiệp của tôi.",
+            "Lịch sử bổ nhiệm của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_appointment_history",
+        capability=Intent.PROFILE_APPOINTMENT_HISTORY.value,
+        intents=frozenset({Intent.PROFILE_APPOINTMENT_HISTORY}),
+        description=(
+            "Tra cứu lịch sử bổ nhiệm, quá trình giữ chức và các quyết định "
+            "bổ nhiệm của chính người dùng."
+        ),
+        endpoint="appointment-history",
+        base="/api/v1/hrm/profile/current",
+        examples=(
+            "Quá trình bổ nhiệm của tôi.",
+            "Lịch sử bổ nhiệm của tôi.",
+            "Tôi từng giữ những chức vụ nào?",
+            "Các quyết định bổ nhiệm của tôi.",
+            "Quá trình giữ chức trong hồ sơ.",
+            "lich su bo nhiem cua toi",
+            "qua trinh giu chuc cua toi",
+        ),
+        negative_examples=(
+            "Chức danh hiện tại của tôi.",
+            "Lịch sử điều chuyển của tôi.",
+            "Ngày tuyển dụng của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_transfer_history",
+        capability=Intent.PROFILE_TRANSFER_HISTORY.value,
+        intents=frozenset({Intent.PROFILE_TRANSFER_HISTORY}),
+        description=(
+            "Tra cứu lịch sử điều chuyển, luân chuyển và chuyển đơn vị của "
+            "chính người dùng."
+        ),
+        endpoint="transfer-history",
+        base="/api/v1/hrm/profile/current",
+        examples=(
+            "Lịch sử điều chuyển của tôi.",
+            "Tôi từng luân chuyển qua đâu?",
+            "Các lần chuyển đơn vị của tôi.",
+            "Quá trình điều chuyển công tác.",
+            "Tôi đã chuyển phòng ban những lần nào?",
+            "lich su dieu chuyen cua toi",
+            "chuyen don vi cua toi",
+        ),
+        negative_examples=(
+            "Đơn vị hiện tại của tôi.",
+            "Lịch sử bổ nhiệm của tôi.",
+            "Quá trình đào tạo của tôi.",
         ),
     ),
 )
