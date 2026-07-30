@@ -11,6 +11,7 @@ class ActorContext(BaseModel):
     odoo_user_id: int = Field(gt=0)
     company_ids: tuple[int, ...] = ()
     group_codes: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
     locale: str = Field(default="vi_VN", min_length=1, max_length=32)
     timezone: str = Field(
         default="Asia/Ho_Chi_Minh",

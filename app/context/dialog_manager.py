@@ -42,6 +42,15 @@ _NAMED_EMPLOYEE_QUERY = re.compile(
     r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]+){1,5}"
     r"\s+(?:ở|thuộc|làm việc)\b"
 )
+_ADMIN_NEW_INTENT = re.compile(
+    r"\b(?:"
+    r"nhân viên|ai|người nào|tìm người"
+    r").*(?:"
+    r"chứng chỉ|chứng nhận|hợp đồng|phòng|đơn vị"
+    r")\b|"
+    r"\b(?:hợp đồng).*(?:sắp hết hạn|đến hạn|hết hạn trong)\b",
+    re.I,
+)
 
 
 class DialogTurnManager:
@@ -64,6 +73,8 @@ class DialogTurnManager:
         if self._matches_expected_slot(text, expected_field):
             return TurnType.CLARIFICATION_ANSWER
         if _NAMED_EMPLOYEE_QUERY.search(text):
+            return TurnType.NEW_QUERY_OVERRIDE
+        if _ADMIN_NEW_INTENT.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _CLEAR_NEW_INTENT.search(text) and (
             _QUERY_OR_COMMAND.search(text)

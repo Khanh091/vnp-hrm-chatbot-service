@@ -1,4 +1,5 @@
 import logging
+import re
 from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -6,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.retrieval.embeddings import EmbeddingProvider
 from app.retrieval.tool_indexer import retrieval_route
 from app.retrieval.vector_store import VectorStore
-from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import (
     CandidateRetrievalRequest,
     Domain,
@@ -74,6 +74,39 @@ class CandidateRetriever:
             ),
             scope=classification.scope,
         )
+        if (
+            classification.intent is not None
+            and classification.intent.value == "leave.request_status"
+            and direct_matches
+        ):
+            has_reference = bool(
+                re.search(
+                    r"\b(?:LEAVE[-\s]?\d+|"
+                    r"(?:đơn|yêu cầu)(?:\s+nghỉ)?\s*(?:mã|số)?\s*\d+|"
+                    r"gần nhất|mới nhất|đầu tiên|cuối cùng|trước đó)\b",
+                    request.query,
+                    re.IGNORECASE,
+                )
+            )
+            has_reference = has_reference or bool(
+                re.search(
+                    r"\bđơn(?:\s+nghỉ)?\s+"
+                    r"(?:thứ\s+(?:\d+|hai|ba|tư|bốn|năm|sáu|bảy|tám|chín|mười)"
+                    r"|ngày\s+\d{1,2}[/-]\d{1,2}(?:[/-]\d{4})?)\b",
+                    request.query,
+                    re.IGNORECASE,
+                )
+            )
+            preferred_name = (
+                "leave_get_request_status"
+                if has_reference
+                else "leave_get_history"
+            )
+            direct_matches = tuple(
+                tool
+                for tool in direct_matches
+                if tool.name == preferred_name
+            )
         if classification.intent is not None and len(direct_matches) == 1:
             tool = direct_matches[0]
             self._enforce_operation_invariant(
@@ -156,10 +189,7 @@ class CandidateRetriever:
                 )
                 or (
                     classification.intent is not None
-                    and not tool_supports_intent(
-                        tool.name,
-                        classification.intent,
-                    )
+                    and not tool.supports_intent(classification.intent)
                 )
                 or all(
                     subject_type.value
@@ -207,8 +237,11 @@ class CandidateRetriever:
         operations: tuple[str, ...],
     ) -> tuple[tuple[Domain, ...], str | None]:
         classification = request.classification
+        supported_domains = self._domains_for_scope(
+            classification.scope.value
+        )
         primary = classification.primary_domain
-        if primary in self._supported_domains and await self._has(
+        if primary in supported_domains and await self._has(
             (primary,),
             route_types,
             operations,
@@ -218,7 +251,7 @@ class CandidateRetriever:
         secondary = tuple(
             domain
             for domain in classification.secondary_domains
-            if domain in self._supported_domains and domain is not primary
+            if domain in supported_domains and domain is not primary
         )
         if secondary and await self._has(secondary, route_types, operations):
             return secondary, "SECONDARY_DOMAIN_FALLBACK"
@@ -230,12 +263,28 @@ class CandidateRetriever:
 
         broader = tuple(
             domain
-            for domain in self._supported_domains
+            for domain in supported_domains
             if domain is not primary and domain not in secondary
         )
         if broader and await self._has(broader, route_types, operations):
             return broader, "LOW_CONFIDENCE_DOMAIN_EXPANSION"
         return (), "NO_METADATA_CANDIDATES"
+
+    def _domains_for_scope(self, scope: str) -> tuple[Domain, ...]:
+        subject_type = "employee" if scope == "named_employee" else scope
+        return tuple(
+            domain
+            for domain in self._supported_domains
+            if any(
+                tool.enabled
+                and tool.domain.value == domain.value
+                and any(
+                    item.value == subject_type
+                    for item in tool.supported_subject_types
+                )
+                for tool in self._registry.list_all()
+            )
+        )
 
     async def _has(
         self,

@@ -6,11 +6,26 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.PROFILE_BASIC: ("profile_get_summary",),
     Intent.PROFILE_SUMMARY: ("profile_get_summary",),
     Intent.PROFILE_EMPLOYEE_CODE: ("profile_get_summary",),
-    Intent.PROFILE_JOB_TITLE: ("profile_get_employment",),
-    Intent.PROFILE_DEPARTMENT: ("profile_get_employment",),
-    Intent.PROFILE_WORK_UNIT: ("profile_get_employment",),
-    Intent.PROFILE_MANAGER: ("profile_get_employment",),
-    Intent.PROFILE_EMPLOYMENT: ("profile_get_employment",),
+    Intent.PROFILE_JOB_TITLE: (
+        "profile_get_employment",
+        "employee_get_employment",
+    ),
+    Intent.PROFILE_DEPARTMENT: (
+        "profile_get_employment",
+        "employee_get_employment",
+    ),
+    Intent.PROFILE_WORK_UNIT: (
+        "profile_get_employment",
+        "employee_get_employment",
+    ),
+    Intent.PROFILE_MANAGER: (
+        "profile_get_employment",
+        "employee_get_employment",
+    ),
+    Intent.PROFILE_EMPLOYMENT: (
+        "profile_get_employment",
+        "employee_get_employment",
+    ),
     Intent.PROFILE_CONTACT: ("profile_get_contact",),
     Intent.PROFILE_WORK_HISTORY: ("profile_get_history",),
     Intent.PROFILE_APPOINTMENT_HISTORY: ("profile_get_history",),
@@ -55,7 +70,10 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.LEAVE_BALANCE: ("leave_get_balance",),
     Intent.LEAVE_USED: ("leave_get_used",),
     Intent.LEAVE_HISTORY: ("leave_get_history",),
-    Intent.LEAVE_REQUEST_STATUS: ("leave_get_request_status",),
+    Intent.LEAVE_REQUEST_STATUS: (
+        "leave_get_history",
+        "leave_get_request_status",
+    ),
     Intent.LEAVE_CALENDAR: ("leave_get_calendar",),
     Intent.LEAVE_ELIGIBILITY: ("leave_check_eligibility",),
     Intent.LEAVE_TYPES: ("leave_list_types",),
@@ -64,8 +82,18 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.LEAVE_CANCEL: ("leave_cancel_request",),
     # These names are reserved for allowlisted directory tools. They are only
     # selectable when the runtime registry actually contains the definition.
+    Intent.DIRECTORY_EMPLOYEE_SEARCH: ("employee_search",),
+    Intent.DIRECTORY_EMPLOYEE_PROFILE: ("employee_get_basic",),
     Intent.DIRECTORY_EMPLOYEE_DEPARTMENT: ("employee_get_employment",),
     Intent.DIRECTORY_DEPARTMENT_EMPLOYEES: ("department_list_employees",),
+    Intent.DIRECTORY_EMPLOYEE_BY_CERTIFICATE: (
+        "employee_find_by_certificate",
+    ),
+    Intent.REPORT_CONTRACTS_EXPIRING: ("contract_list_expiring",),
+    Intent.REPORT_TERMINATED_EMPLOYEES: ("report_terminated_employees",),
+    Intent.REPORT_DEPARTMENT_HR_SUMMARY: (
+        "report_department_hr_summary",
+    ),
 }
 
 

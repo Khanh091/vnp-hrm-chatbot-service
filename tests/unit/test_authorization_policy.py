@@ -28,6 +28,8 @@ def trusted() -> TrustedExecutionContext:
     [
         "profile_get_employment",
         "profile_get_education",
+        "profile_get_bank_accounts",
+        "profile_get_insurance",
         "leave_get_balance",
     ],
 )

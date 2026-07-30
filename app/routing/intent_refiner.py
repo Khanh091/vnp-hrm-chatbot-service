@@ -15,6 +15,46 @@ _READ_REFINEMENTS: tuple[
     ...,
 ] = (
     (
+        re.compile(
+            r"\b(?:danh sách|liệt kê|những)\s+"
+            r"(?:nhân viên|cán bộ|người).*(?:phòng|ban|đơn vị)\b",
+            re.I,
+        ),
+        Domain.DIRECTORY,
+        Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,
+        SubjectScope.DEPARTMENT,
+    ),
+    (
+        re.compile(
+            r"\b(?:nhân viên|cán bộ)\s+(?:mã\s+)?[A-Z0-9._-]+"
+            r".*(?:thuộc phòng|ở cơ quan|làm ở đâu|thuộc đơn vị)\b",
+            re.I,
+        ),
+        Domain.DIRECTORY,
+        Intent.DIRECTORY_EMPLOYEE_DEPARTMENT,
+        SubjectScope.NAMED_EMPLOYEE,
+    ),
+    (
+        re.compile(
+            r"\b(?:nhân viên|ai|người nào).*(?:có|sở hữu)\s+"
+            r"(?:chứng chỉ|chứng nhận)\b",
+            re.I,
+        ),
+        Domain.DIRECTORY,
+        Intent.DIRECTORY_EMPLOYEE_BY_CERTIFICATE,
+        SubjectScope.COMPANY,
+    ),
+    (
+        re.compile(
+            r"\b(?:liệt kê|danh sách|báo cáo).*(?:hợp đồng)"
+            r".*(?:hết hạn|sắp hết hạn).*(?:\d+\s+ngày|sắp tới)\b",
+            re.I,
+        ),
+        Domain.REPORTING,
+        Intent.REPORT_CONTRACTS_EXPIRING,
+        SubjectScope.COMPANY,
+    ),
+    (
         re.compile(r"\b(?:quên chấm công|thiếu lượt chấm công)\b", re.I),
         Domain.ATTENDANCE,
         Intent.ATTENDANCE_MISSING_PUNCH_COUNT,
@@ -52,7 +92,11 @@ _READ_REFINEMENTS: tuple[
         None,
     ),
     (
-        re.compile(r"\btrạng thái\s+đơn\s+nghỉ", re.I),
+        re.compile(
+            r"\b(?:trạng thái\s+đơn\s+nghỉ|"
+            r"đơn\s+nghỉ.*(?:duyệt chưa|thế nào|trạng thái))",
+            re.I,
+        ),
         Domain.LEAVE,
         Intent.LEAVE_REQUEST_STATUS,
         None,
@@ -105,7 +149,8 @@ _READ_REFINEMENTS: tuple[
     (
         re.compile(
             r"\b[A-ZÀ-ỸĐ][A-Za-zÀ-ỹĐđ' -]{2,80}\s+"
-            r"(?:ở|thuộc|làm việc tại)\s+(?:cơ quan|phòng|đơn vị)\b",
+            r"(?:ở|thuộc|làm việc tại)\s+"
+            r"(?:cơ quan|phòng|đơn vị|ở đâu)\b",
         ),
         Domain.DIRECTORY,
         Intent.DIRECTORY_EMPLOYEE_DEPARTMENT,

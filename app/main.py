@@ -35,7 +35,10 @@ from app.context.dialog_manager import DialogTurnManager
 from app.context.entity_memory import EntityMemoryService
 from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
 from app.context.pending_action_service import PendingActionError, PendingActionService
-from app.context.subject_resolver import SubjectResolver
+from app.context.subject_resolver import (
+    OdooSubjectLookupProvider,
+    SubjectResolver,
+)
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
 from app.llm.client import (
@@ -175,7 +178,9 @@ def create_app(
                 dialog_turn_manager=DialogTurnManager(),
                 entity_resolver=EntityResolver(),
                 business_entity_resolver=BusinessEntityResolver(),
-                subject_resolver=SubjectResolver(),
+                subject_resolver=SubjectResolver(
+                    OdooSubjectLookupProvider(application.state.odoo_client)
+                ),
                 entity_memory_service=EntityMemoryService(),
                 validator=validator,
                 authorization_policy=AuthorizationPolicyService(registry),

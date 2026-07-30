@@ -41,7 +41,8 @@ def build_tool_embedding_text(tool: ToolDefinition) -> str:
             f"Tool: {tool.name}",
             f"Domain: {tool.domain.value}",
             f"Capability: {tool.capability}",
-            f"Intent: {tool.intent.value if tool.intent else ''}",
+            "Intents: "
+            + ", ".join(sorted(intent.value for intent in tool.intents)),
             f"Operation: {tool.operation.value}",
             f"Route: {retrieval_route(tool)}",
             f"Description: {tool.description}",

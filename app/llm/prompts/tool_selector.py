@@ -47,7 +47,9 @@ def build_tool_selector_prompt(request: ToolSelectorRequest) -> str:
             {
                 "name": candidate.tool_name,
                 "purpose": candidate.description,
-                "supported_intent": candidate.capability,
+                "supported_intents": [
+                    intent.value for intent in candidate.supported_intents
+                ],
                 "required_arguments": candidate.required_arguments,
                 "optional_arguments": candidate.optional_arguments,
             }

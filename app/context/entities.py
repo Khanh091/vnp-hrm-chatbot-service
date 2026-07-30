@@ -75,6 +75,7 @@ class SubjectMention(BaseModel):
     employee_name: str | None = Field(default=None, max_length=200)
     employee_code: str | None = Field(default=None, max_length=100)
     department_name: str | None = Field(default=None, max_length=200)
+    date_reference: DateValue | str | None = None
     ordinal_reference: int | None = Field(default=None, gt=0)
     recency_reference: Literal[
         "latest",

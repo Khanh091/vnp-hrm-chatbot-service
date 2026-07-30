@@ -32,6 +32,19 @@ ODOO_CONTROLLER_ENDPOINTS = {
     "/api/hrm-chatbot/v1/leave/requests",
     "/api/hrm-chatbot/v1/leave/requests/{request_id}",
     "/api/hrm-chatbot/v1/leave/requests/{request_id}/cancel",
+    "/api/v1/hrm/employees/search-by-certificate",
+    "/api/v1/hrm/contracts/expiring",
+    "/api/v1/hrm/employees/search",
+    "/api/v1/hrm/departments/{department_id}/employees",
+    "/api/v1/hrm/employees/{employee_id}/basic",
+    "/api/v1/hrm/employees/{employee_id}/employment",
+    "/api/v1/hrm/employees/{employee_id}/contact",
+    "/api/v1/hrm/employees/{employee_id}/education",
+    "/api/v1/hrm/employees/{employee_id}/certificates",
+    "/api/v1/hrm/employees/{employee_id}/work-history",
+    "/api/v1/hrm/employees/{employee_id}/contracts",
+    "/api/v1/hrm/employees/{employee_id}/bank-tax",
+    "/api/v1/hrm/employees/{employee_id}/insurance",
 }
 
 
@@ -51,6 +64,8 @@ def test_catalog_domain_counts_are_expected() -> None:
     assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 11
     assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
     assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
+    assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 12
+    assert sum(tool.domain is Domain.REPORTING for tool in ALL_TOOLS) == 1
 
 
 def test_leave_commands_require_confirmation_and_write_risk() -> None:

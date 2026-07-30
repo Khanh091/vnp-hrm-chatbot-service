@@ -1,0 +1,69 @@
+- query: "số lần quên chấm công của tôi"
+  expected_route: data_query
+  expected_intent: attendance.missing_punch_count
+  expected_operation: read
+  expected_subject_type: self
+  expected_tool: attendance_get_monthly_summary
+
+- query: "số ngày làm việc trong tháng của tôi"
+  expected_route: data_query
+  expected_intent: attendance.actual_work_days
+  expected_operation: read
+  expected_subject_type: self
+  expected_tool: attendance_get_monthly_summary
+
+- query: "lịch sử chấm công"
+  expected_route: data_query
+  expected_intent: attendance.history
+  expected_operation: read
+  expected_subject_type: self
+  expected_tool: attendance_get_history
+
+- query: "trạng thái đơn nghỉ phép của tôi"
+  expected_route: data_query
+  expected_intent: leave.request_status
+  expected_operation: read
+  expected_subject_type: self
+  expected_tool: leave_get_history
+
+- query: "đơn nghỉ gần nhất đã duyệt chưa"
+  expected_route: data_query
+  expected_intent: leave.request_status
+  expected_operation: read
+  expected_subject_type: self
+  expected_tool: leave_get_request_status
+
+- query: "Lò Văn Định ở cơ quan nào"
+  expected_route: data_query
+  expected_intent: directory.employee_department
+  expected_operation: read
+  expected_subject_type: employee
+  expected_tool: employee_get_employment
+
+- query: "nhân viên mã 00234086 thuộc phòng nào"
+  expected_route: data_query
+  expected_intent: directory.employee_department
+  expected_operation: read
+  expected_subject_type: employee
+  expected_tool: employee_get_employment
+
+- query: "cho tôi danh sách nhân viên phòng Kế toán"
+  expected_route: data_query
+  expected_intent: directory.department_employees
+  expected_operation: read
+  expected_subject_type: department
+  expected_tool: department_list_employees
+
+- query: "nhân viên nào có chứng chỉ AWS"
+  expected_route: data_query
+  expected_intent: directory.employee_by_certificate
+  expected_operation: read
+  expected_subject_type: company
+  expected_tool: employee_find_by_certificate
+
+- query: "liệt kê hợp đồng hết hạn trong 30 ngày tới"
+  expected_route: data_query
+  expected_intent: report.contracts_expiring
+  expected_operation: read
+  expected_subject_type: company
+  expected_tool: contract_list_expiring

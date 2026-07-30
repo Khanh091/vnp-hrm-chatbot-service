@@ -11,7 +11,8 @@ from app.tools.definitions import (
 
 TOOL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 ENDPOINT_PATTERN = re.compile(
-    r"^/api/hrm-chatbot/v1/[a-z0-9/-]+(?:\{[a-z_]+\}[a-z0-9/-]*)?$"
+    r"^/(?:api/hrm-chatbot/v1|api/v1/hrm)/"
+    r"[a-z0-9/-]+(?:\{[a-z_]+\}[a-z0-9/-]*)?$"
 )
 PLACEHOLDER_PATTERN = re.compile(r"\{([a-z_]+)\}")
 

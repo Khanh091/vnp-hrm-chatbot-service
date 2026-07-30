@@ -1,3 +1,4 @@
+from app.routing.taxonomy import Intent
 from app.tools.definitions import (
     Domain,
     HttpMethod,
@@ -19,12 +20,14 @@ def _profile_tool(
     endpoint: str,
     examples: tuple[str, ...],
     negative_examples: tuple[str, ...],
+    intents: frozenset[Intent] = frozenset(),
     sensitive: bool = False,
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
         domain=Domain.PROFILE,
         capability=capability,
+        intents=intents,
         operation=Operation.GET,
         route_type=RouteType.QUERY,
         risk_level=(
@@ -75,6 +78,15 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_employment",
         capability="profile.employment",
+        intents=frozenset(
+            {
+                Intent.PROFILE_EMPLOYMENT,
+                Intent.PROFILE_JOB_TITLE,
+                Intent.PROFILE_DEPARTMENT,
+                Intent.PROFILE_WORK_UNIT,
+                Intent.PROFILE_MANAGER,
+            }
+        ),
         description=(
             "Lấy thông tin công tác hiện tại: đơn vị, công ty, phòng ban, chức danh, "
             "vị trí công việc, loại nhân sự, trạng thái làm việc và quản lý trực tiếp."
@@ -99,11 +111,15 @@ PROFILE_TOOLS = (
             "phong ban cua toi",
             "chuc danh cong viec cua toi",
             "quan ly truc tiep cua toi",
+            "Tôi làm ở đâu?",
+            "Nơi làm việc hiện tại của tôi.",
+            "Cơ quan của tôi là đơn vị nào?",
         ),
         negative_examples=(
             "Lịch sử điều chuyển công tác của tôi.",
             "Cho xem nội dung các hợp đồng lao động.",
             "Email và số điện thoại cá nhân của tôi.",
+            "Danh sách nhân viên phòng Kế toán.",
         ),
     ),
     _profile_tool(

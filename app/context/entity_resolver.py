@@ -99,7 +99,8 @@ class EntityResolver:
         re.I,
     )
     _EMPLOYEE_CODE = re.compile(
-        r"\b(?:mã nhân viên|mã nhân sự|mã nv)\s*[:#-]?\s*"
+        r"\b(?:mã nhân viên|mã nhân sự|mã nv|nhân viên mã)"
+        r"\s*[:#-]?\s*"
         r"(?P<code>[A-Z0-9][A-Z0-9._-]{1,30})\b",
         re.I,
     )
@@ -211,6 +212,31 @@ class EntityResolver:
             normalized,
             re.I,
         )
+        ordinal_word_match = re.search(
+            r"\bđơn(?:\s+nghỉ)?\s+thứ\s+"
+            r"(?P<ordinal>hai|ba|tư|bốn|năm|sáu|bảy|tám|chín|mười)\b",
+            normalized,
+            re.I,
+        )
+        date_reference_match = re.search(
+            r"\bđơn(?:\s+nghỉ)?\s+ngày\s+"
+            r"(?P<day>\d{1,2})[/-](?P<month>\d{1,2})"
+            r"(?:[/-](?P<year>\d{4}))?\b",
+            normalized,
+            re.I,
+        )
+        ordinal_words = {
+            "hai": 2,
+            "ba": 3,
+            "tư": 4,
+            "bốn": 4,
+            "năm": 5,
+            "sáu": 6,
+            "bảy": 7,
+            "tám": 8,
+            "chín": 9,
+            "mười": 10,
+        }
         employee_name = (
             employee.group("name")
             if employee
@@ -236,9 +262,26 @@ class EntityResolver:
             department_name=(
                 department.group("name").strip() if department else None
             ),
+            date_reference=(
+                "/".join(
+                    part
+                    for part in (
+                        date_reference_match.group("day"),
+                        date_reference_match.group("month"),
+                        date_reference_match.group("year"),
+                    )
+                    if part
+                )
+                if date_reference_match
+                else None
+            ),
             ordinal_reference=(
                 int(ordinal_match.group("ordinal"))
                 if ordinal_match
+                else ordinal_words[
+                    ordinal_word_match.group("ordinal").casefold()
+                ]
+                if ordinal_word_match
                 else 1
                 if recency == "first"
                 else None

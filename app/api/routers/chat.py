@@ -63,6 +63,7 @@ async def _trusted_context(
         company_id=odoo_context.company_id,
         company_ids=odoo_context.company_ids or (odoo_context.company_id,),
         group_codes=odoo_context.group_codes,
+        capabilities=odoo_context.capabilities,
         timezone=odoo_context.timezone,
         language=odoo_context.language,
         conversation_id=conversation_id or str(uuid4()),

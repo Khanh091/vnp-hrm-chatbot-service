@@ -54,6 +54,24 @@ async def resolve_arguments_node(
             trusted_context.actor_context,
         )
     resolved_arguments = dict(resolution.arguments)
+    resolved_subject = (
+        subject_resolution.subject
+        if subject_resolution is not None
+        else None
+    )
+    if resolved_subject is not None:
+        if (
+            "employee_id" in tool.argument_schema.model_fields
+            and resolved_subject.employee_id is not None
+        ):
+            resolved_arguments["employee_id"] = resolved_subject.employee_id
+        if (
+            "department_id" in tool.argument_schema.model_fields
+            and resolved_subject.department_id is not None
+        ):
+            resolved_arguments["department_id"] = (
+                resolved_subject.department_id
+            )
     if (
         "request_id" in tool.argument_schema.model_fields
         and "request_id" not in resolved_arguments
@@ -117,6 +135,18 @@ async def resolve_arguments_node(
                     if subject_resolution is not None
                     else state.get("workflow_data", {}).get(
                         "subject_resolution"
+                    )
+                ),
+                "clarification_options": (
+                    [
+                        option.model_dump(mode="json")
+                        for option in subject_resolution.options
+                    ]
+                    if subject_resolution is not None
+                    and subject_resolution.options
+                    else state.get("workflow_data", {}).get(
+                        "clarification_options",
+                        [],
                     )
                 ),
             },

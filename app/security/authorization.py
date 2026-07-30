@@ -5,7 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.context.entities import ResolvedSubject
-from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import SecurityValidationResult, ValidationIssue
 from app.routing.schemas import ValidationIssueCategory as IssueCategory
 from app.routing.taxonomy import Intent, Operation, SubjectScope
@@ -15,9 +14,21 @@ from app.tools.registry import ToolNotFoundError, ToolRegistry
 _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
+    "department_id",
     "company_id",
+    "contract_type_id",
     "company_ids",
     "group_codes",
+    "capabilities",
+    "conversation_id",
+    "timezone",
+    "language",
+}
+_ACTOR_ONLY_FIELDS = {
+    "odoo_user_id",
+    "company_ids",
+    "group_codes",
+    "capabilities",
     "conversation_id",
     "timezone",
     "language",
@@ -66,7 +77,7 @@ class AuthorizationPolicyService:
         issues: list[ValidationIssue] = []
         injected = sorted(
             set(rejected_trusted_fields)
-            | (_TRUSTED_FIELDS.intersection(arguments))
+            | (_ACTOR_ONLY_FIELDS.intersection(arguments))
         )
         for field in injected:
             issues.append(
@@ -104,7 +115,14 @@ class AuthorizationPolicyService:
         if not tool.enabled:
             return self._deny("TOOL_NOT_ALLOWED")
         if (
-            not tool_supports_intent(tool.name, request.intent)
+            tool.required_actor_capability
+            and request.trusted_context.capabilities
+            and tool.required_actor_capability
+            not in request.trusted_context.capabilities
+        ):
+            return self._deny("ACCESS_DENIED")
+        if (
+            not tool.supports_intent(request.intent)
             or tool.query_operation is not request.operation
         ):
             return self._deny("TOOL_OPERATION_NOT_ALLOWED")

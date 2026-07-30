@@ -1,3 +1,4 @@
+from app.routing.taxonomy import Intent
 from app.tools.definitions import (
     Domain,
     HttpMethod,
@@ -71,6 +72,9 @@ LEAVE_TOOLS = (
         name="leave_get_history",
         domain=Domain.LEAVE,
         capability="leave.history",
+        intents=frozenset(
+            {Intent.LEAVE_HISTORY, Intent.LEAVE_REQUEST_STATUS}
+        ),
         operation=Operation.LIST,
         route_type=RouteType.QUERY,
         risk_level=RiskLevel.READ,
@@ -108,6 +112,11 @@ LEAVE_TOOLS = (
             "Đơn xin phép của tôi đang chờ ai xử lý?",
             "Yêu cầu nghỉ 88 có bị từ chối không?",
             "Tình trạng hiện tại của đơn nghỉ mã 19.",
+            "Trạng thái đơn nghỉ phép của tôi.",
+            "Đơn gần nhất thế nào?",
+            "Đơn nghỉ gần nhất đã duyệt chưa?",
+            "Đơn nghỉ đang ở trạng thái gì?",
+            "don nghi da duyet chua",
         ),
         negative_examples=(
             "Liệt kê toàn bộ đơn nghỉ tháng này.",
@@ -213,6 +222,12 @@ LEAVE_TOOLS = (
             "Tôi có đủ điều kiện nghỉ ngày mai không?",
             "Đơn nghỉ mã 25 được duyệt chưa?",
             "Cập nhật lý do cho đơn nghỉ đã tạo.",
+            "Số ngày phép còn lại.",
+            "Lịch sử nghỉ phép.",
+            "Trạng thái đơn nghỉ phép.",
+            "Đơn nghỉ đã duyệt chưa.",
+            "Số lần quên chấm công.",
+            "Lịch sử chấm công.",
         ),
         requires_confirmation=True,
     ),

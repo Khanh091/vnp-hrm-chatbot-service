@@ -65,6 +65,78 @@ class NoArguments(ToolArguments):
     pass
 
 
+class EmployeeSearchArguments(ToolArguments):
+    name: str | None = Field(default=None, min_length=1, max_length=256)
+    employee_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
+    department_id: int | None = Field(default=None, gt=0)
+    limit: int = Field(default=10, gt=0, le=50)
+
+    @model_validator(mode="after")
+    def require_search_criterion(self) -> EmployeeSearchArguments:
+        if not (self.name or self.employee_code or self.department_id):
+            raise ValueError("at least one employee search criterion is required")
+        return self
+
+
+class DepartmentSearchArguments(ToolArguments):
+    name: str = Field(min_length=1, max_length=256)
+    limit: int = Field(default=10, gt=0, le=50)
+
+
+class EmployeeSubjectArguments(ToolArguments):
+    employee_id: int = Field(gt=0)
+
+
+class DepartmentEmployeesArguments(ToolArguments):
+    department_id: int = Field(gt=0)
+    active: bool = True
+    employee_type: int | None = Field(default=None, gt=0)
+    job_title: int | None = Field(default=None, gt=0)
+    limit: int = Field(default=50, gt=0, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class EmployeeCertificateSearchArguments(ToolArguments):
+    certificate_query: str = Field(min_length=1, max_length=256)
+    certificate_type: str | None = Field(default=None, min_length=1, max_length=128)
+    valid_on: date | None = None
+    department_id: int | None = Field(default=None, gt=0)
+    company_id: int | None = Field(default=None, gt=0)
+    active_employee_only: bool = True
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class ContractExpiringArguments(ToolArguments):
+    date_from: date | None = None
+    date_to: date | None = None
+    within_days: int | None = Field(default=None, ge=0, le=366)
+    department_id: int | None = Field(default=None, gt=0)
+    company_id: int | None = Field(default=None, gt=0)
+    contract_type_id: int | None = Field(default=None, gt=0)
+    active_employee_only: bool = True
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> ContractExpiringArguments:
+        has_dates = self.date_from is not None or self.date_to is not None
+        if self.within_days is not None and has_dates:
+            raise ValueError("within_days cannot be combined with date range")
+        if self.within_days is None:
+            if self.date_from is None or self.date_to is None:
+                raise ValueError(
+                    "provide within_days or both date_from and date_to"
+                )
+            if self.date_from > self.date_to:
+                raise ValueError("date_from must not be after date_to")
+        return self
+
+
 class AttendanceDailyArguments(ToolArguments):
     date: date
 
@@ -144,6 +216,7 @@ class TrustedExecutionContext(BaseModel):
     company_id: int | None = Field(default=None, gt=0)
     company_ids: tuple[int, ...] = ()
     group_codes: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
     timezone: str = Field(default="Asia/Ho_Chi_Minh", min_length=1, max_length=64)
     language: str | None = Field(default=None, max_length=32)
     conversation_id: str = Field(default="unknown", min_length=1, max_length=128)
@@ -161,6 +234,7 @@ class TrustedExecutionContext(BaseModel):
             odoo_user_id=self.odoo_user_id,
             company_ids=self.company_ids,
             group_codes=self.group_codes,
+            capabilities=self.capabilities,
             locale=self.language or "vi_VN",
             timezone=self.timezone,
             linked_employee_id=self.employee_id,
@@ -187,6 +261,7 @@ class ToolDefinition(BaseModel):
     domain: Domain
     capability: str
     intent: Intent | None = None
+    intents: frozenset[Intent] = frozenset()
     route: QueryRoute | None = None
     operation: Operation
     route_type: RouteType
@@ -205,6 +280,7 @@ class ToolDefinition(BaseModel):
     version: str = "1.0"
     path_arguments: tuple[str, ...] = ()
     sensitive: bool = False
+    required_actor_capability: str | None = None
 
     @model_validator(mode="after")
     def derive_routing_metadata(self) -> ToolDefinition:
@@ -226,11 +302,17 @@ class ToolDefinition(BaseModel):
             if self.route_type is RouteType.COMMAND
             else QueryRoute.DATA_QUERY
         )
-        if self.intent is not None and self.intent is not intent_value:
-            raise ValueError("tool intent does not match capability")
+        declared_intents = self.intents or frozenset(
+            {self.intent or intent_value}
+        )
+        if intent_value not in declared_intents:
+            raise ValueError("tool capability intent must be declared")
+        if self.intent is not None and self.intent not in declared_intents:
+            raise ValueError("primary tool intent must be declared")
         if self.route is not None and self.route is not expected_route:
             raise ValueError("tool query route does not match route_type")
-        object.__setattr__(self, "intent", intent_value)
+        object.__setattr__(self, "intent", self.intent or intent_value)
+        object.__setattr__(self, "intents", frozenset(declared_intents))
         object.__setattr__(self, "route", expected_route)
         if not self.supported_subject_types:
             subject_types = tuple(
@@ -248,6 +330,29 @@ class ToolDefinition(BaseModel):
                 subject_types,
             )
         return self
+
+    def supports_intent(self, intent: Intent) -> bool:
+        return intent in self.intents
+
+    @property
+    def required_arguments(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, field in self.argument_schema.model_fields.items()
+            if field.is_required() and name != "idempotency_key"
+        )
+
+    @property
+    def optional_arguments(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, field in self.argument_schema.model_fields.items()
+            if not field.is_required()
+        )
+
+    @property
+    def tool_version(self) -> str:
+        return self.version
 
     @property
     def query_operation(self) -> QueryOperation:

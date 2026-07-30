@@ -102,13 +102,30 @@ async def merge_clarification_node(
                     [],
                 )
             ]
-            if any(
-                option.value == structured_value for option in known_options
+            if isinstance(structured_value, int) and any(
+                option.value == structured_value
+                for option in known_options
             ):
                 arguments[field] = structured_value
                 options = [
                     item.model_dump(mode="json") for item in known_options
                 ]
+                resolved = True
+        elif field in {"employee_id", "department_id"}:
+            subject_options = [
+                item
+                for item in state.get("workflow_data", {}).get(
+                    "clarification_options",
+                    [],
+                )
+                if isinstance(item, dict)
+            ]
+            if isinstance(structured_value, int) and any(
+                item.get("value") == structured_value
+                for item in subject_options
+            ):
+                arguments[field] = structured_value
+                options = subject_options
                 resolved = True
         else:
             arguments[field] = structured_value

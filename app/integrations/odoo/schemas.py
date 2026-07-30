@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import AliasChoices, BaseModel, Field, JsonValue
 
 
 class OdooMeta(BaseModel):
@@ -24,10 +24,14 @@ class OdooHealthData(BaseModel):
 
 class OdooUserContext(BaseModel):
     user_id: int
-    employee_id: int | None = None
+    employee_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("employee_id", "linked_employee_id"),
+    )
     company_id: int
     company_ids: tuple[int, ...] = ()
     group_codes: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
     department_id: int | None
     timezone: str
     language: str

@@ -254,6 +254,7 @@ class ToolCandidateContext(BaseModel):
     tool_name: str
     domain: Domain
     capability: str
+    supported_intents: list[Intent] = Field(default_factory=list)
     operation: Operation
     route_type: RouteType
     risk_level: RiskLevel

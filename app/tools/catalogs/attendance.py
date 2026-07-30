@@ -1,3 +1,4 @@
+from app.routing.taxonomy import Intent
 from app.tools.definitions import (
     AttendanceDailyArguments,
     DateRangeArguments,
@@ -21,11 +22,13 @@ def _attendance_tool(
     argument_schema: type[AttendanceDailyArguments] | type[DateRangeArguments],
     examples: tuple[str, ...],
     negative_examples: tuple[str, ...],
+    intents: frozenset[Intent] = frozenset(),
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
         domain=Domain.ATTENDANCE,
         capability=capability,
+        intents=intents,
         operation=Operation.GET,
         route_type=RouteType.QUERY,
         risk_level=RiskLevel.READ,
@@ -61,7 +64,20 @@ ATTENDANCE_TOOLS = (
     _attendance_tool(
         name="attendance_get_monthly_summary",
         capability="attendance.monthly_summary",
-        description="Tổng hợp công trong một khoảng ngày thuộc kỳ cần xem.",
+        intents=frozenset(
+            {
+                Intent.ATTENDANCE_MONTHLY,
+                Intent.ATTENDANCE_MONTHLY_SUMMARY,
+                Intent.ATTENDANCE_OVERTIME_HOURS,
+                Intent.ATTENDANCE_LATE_COUNT,
+                Intent.ATTENDANCE_MISSING_PUNCH_COUNT,
+                Intent.ATTENDANCE_ACTUAL_WORK_DAYS,
+            }
+        ),
+        description=(
+            "Tổng hợp công trong một khoảng ngày: số ngày làm việc thực tế, "
+            "giờ làm thêm, số lần đi muộn và số lần thiếu lượt chấm."
+        ),
         endpoint="monthly-summary",
         argument_schema=DateRangeArguments,
         examples=(
@@ -70,11 +86,19 @@ ATTENDANCE_TOOLS = (
             "Cho bảng tổng kết công từ đầu đến cuối tháng.",
             "Tổng số giờ làm trong kỳ vừa rồi.",
             "Xem thống kê ngày công tháng trước.",
+            "Số lần quên chấm công của tôi trong tháng này.",
+            "Tôi thiếu lượt chấm vào hoặc chấm ra bao nhiêu lần?",
+            "Số ngày làm việc thực tế trong tháng của tôi.",
+            "Tôi đã làm bao nhiêu ngày tháng này?",
+            "Công tháng này của tôi là bao nhiêu?",
+            "so lan quen cham cong",
+            "so ngay lam viec",
         ),
         negative_examples=(
             "Chi tiết chấm công hôm nay.",
-            "Tôi đi muộn bao nhiêu lần tháng này?",
             "Giải thích vì sao tôi bị thiếu công.",
+            "Tạo đơn nghỉ phép.",
+            "Hủy đơn nghỉ.",
         ),
     ),
     _attendance_tool(

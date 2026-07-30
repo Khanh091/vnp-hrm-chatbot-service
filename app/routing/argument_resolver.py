@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -13,9 +14,12 @@ from app.tools.definitions import ToolDefinition
 _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
+    "department_id",
     "company_id",
+    "contract_type_id",
     "company_ids",
     "group_codes",
+    "capabilities",
     "conversation_id",
     "timezone",
 }
@@ -35,6 +39,8 @@ _QUESTIONS = {
     "leave_type_id": "Bạn muốn sử dụng loại nghỉ nào?",
     "reason": "Bạn muốn ghi lý do nghỉ là gì?",
     "request_id": "Bạn muốn xem trạng thái của đơn nghỉ nào?",
+    "employee_id": "Bạn muốn tra cứu nhân viên nào?",
+    "department_id": "Bạn muốn tra cứu phòng ban nào?",
 }
 
 
@@ -69,10 +75,11 @@ class ArgumentResolver:
         conversation_arguments: dict[str, Any] | None = None,
     ) -> ArgumentResolution:
         arguments = dict(conversation_arguments or {})
-        arguments.update(selection.extracted_arguments)
-        rejected = sorted(_TRUSTED_FIELDS.intersection(arguments))
+        extracted_arguments = dict(selection.extracted_arguments)
+        rejected = sorted(_TRUSTED_FIELDS.intersection(extracted_arguments))
         for field in rejected:
-            arguments.pop(field, None)
+            extracted_arguments.pop(field, None)
+        arguments.update(extracted_arguments)
         for field in _CONTROL_FIELDS:
             arguments.pop(field, None)
 
@@ -89,12 +96,51 @@ class ArgumentResolver:
             transient["leave_type_text"] = business.leave_type_text
         if business.employee_name:
             transient["employee_name"] = business.employee_name
+            if "name" in schema_fields:
+                arguments.setdefault("name", business.employee_name)
         if business.employee_code:
             transient["employee_code"] = business.employee_code
+            if "employee_code" in schema_fields:
+                arguments.setdefault("employee_code", business.employee_code)
+        if business.department_name:
+            transient["department_name"] = business.department_name
+            if "name" in schema_fields:
+                arguments.setdefault("name", business.department_name)
         if business.contract_code:
             transient["contract_code"] = business.contract_code
         if business.reason and "reason" in schema_fields:
             arguments.setdefault("reason", business.reason)
+
+        if "certificate_query" in schema_fields:
+            certificate = re.search(
+                r"(?:chứng\s+chỉ|chứng\s+nhận|certificate)\s+"
+                r"(?P<value>[A-Za-z0-9][A-Za-z0-9 ._+/#-]{0,120})",
+                query,
+                re.IGNORECASE,
+            )
+            if certificate:
+                value = re.sub(
+                    r"\s+(?:nào|gì|của ai|không)\s*[?.!]*$",
+                    "",
+                    certificate.group("value").strip(),
+                    flags=re.IGNORECASE,
+                ).strip(" ?.!")
+                if value:
+                    arguments.setdefault("certificate_query", value)
+
+        if "within_days" in schema_fields:
+            within_days = re.search(
+                r"\b(?:trong|sắp tới|tiếp theo)?\s*"
+                r"(?P<days>\d{1,3})\s*ngày\s*"
+                r"(?:tới|nữa|tiếp theo|sắp tới)?\b",
+                query,
+                re.IGNORECASE,
+            )
+            if within_days:
+                arguments.setdefault(
+                    "within_days",
+                    int(within_days.group("days")),
+                )
 
         if business.leave_request_code:
             transient["leave_request_code"] = business.leave_request_code

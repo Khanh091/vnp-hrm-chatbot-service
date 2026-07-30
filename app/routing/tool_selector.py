@@ -7,7 +7,6 @@ from app.llm.prompts.tool_selector import (
     build_tool_selector_prompt,
 )
 from app.llm.structured_output import StructuredOutputError
-from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import (
     RouteType,
     SubjectScope,
@@ -23,9 +22,12 @@ logger = logging.getLogger(__name__)
 _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
+    "department_id",
     "company_id",
+    "contract_type_id",
     "company_ids",
     "group_codes",
+    "capabilities",
     "conversation_id",
     "timezone",
 }
@@ -66,10 +68,7 @@ class ToolSelector:
             tool = self._registry.get(candidate.tool_name)
             if (
                 request.classification.intent is not None
-                and tool_supports_intent(
-                    tool.name,
-                    request.classification.intent,
-                )
+                and tool.supports_intent(request.classification.intent)
                 and tool.query_operation is request.classification.operation
             ):
                 return ToolSelection(
@@ -127,21 +126,17 @@ class ToolSelector:
         )
         for candidate in selected_candidates:
             tool = self._registry.get(candidate.tool_name)
-            required = [
-                name
-                for name, field in tool.argument_schema.model_fields.items()
-                if field.is_required() and name != "idempotency_key"
-            ]
-            optional = [
-                name
-                for name, field in tool.argument_schema.model_fields.items()
-                if not field.is_required()
-            ]
+            required = list(tool.required_arguments)
+            optional = list(tool.optional_arguments)
             contexts.append(
                 ToolCandidateContext(
                     tool_name=tool.name,
                     domain=candidate.domain,
                     capability=tool.capability,
+                    supported_intents=sorted(
+                        tool.intents,
+                        key=lambda intent: intent.value,
+                    ),
                     operation=tool.query_operation,
                     route_type=(
                         RouteType.TRANSACTION

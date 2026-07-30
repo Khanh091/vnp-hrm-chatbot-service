@@ -29,7 +29,6 @@ _CONTROL_FIELDS = {
 _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
-    "company_id",
     "conversation_id",
     "timezone",
     "language",
@@ -89,7 +88,16 @@ class ToolExecutor:
             business_arguments = dict(arguments)
             for field in _CONTROL_FIELDS:
                 business_arguments.pop(field, None)
-            if _TRUSTED_FIELDS.intersection(business_arguments):
+            resolved_path_fields = {
+                field
+                for field in tool.path_arguments
+                if field in {"employee_id", "department_id"}
+            }
+            injected_fields = (
+                _TRUSTED_FIELDS.intersection(business_arguments)
+                - resolved_path_fields
+            )
+            if injected_fields:
                 error_code = "TRUSTED_FIELD_INJECTION"
                 return self._failure(
                     tool_name,
@@ -196,7 +204,9 @@ class ToolExecutor:
             path = path.replace(f"{{{name}}}", str(value))
         if "{" in path or "}" in path or "://" in path or ".." in path:
             raise ValueError("unsafe registered path")
-        if not path.startswith("/api/hrm-chatbot/v1/"):
+        if not path.startswith(
+            ("/api/hrm-chatbot/v1/", "/api/v1/hrm/")
+        ):
             raise ValueError("path is outside the registered API namespace")
         return path
 
