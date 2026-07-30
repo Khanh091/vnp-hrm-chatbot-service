@@ -58,6 +58,14 @@ _PROFILE_BATCH2_NEW_INTENT = re.compile(
     r"bổ nhiệm|giữ chức|điều chuyển|luân chuyển|chuyển đơn vị)\b",
     re.I,
 )
+_PROFILE_BATCH3_NEW_INTENT = re.compile(
+    r"\b(?:người thân|quan hệ gia đình|vợ chồng|con cái|thân nhân|"
+    r"khen thưởng|thành tích|bằng khen|kỷ luật|xử lý kỷ luật|"
+    r"đánh giá nhân sự|xếp loại|kết quả đánh giá|Đảng viên|"
+    r"Đoàn viên|ngày vào Đoàn|sinh hoạt Đoàn|mục tiêu cá nhân|"
+    r"sở thích|điểm mạnh|điểm yếu)\b",
+    re.I,
+)
 
 
 class DialogTurnManager:
@@ -84,6 +92,8 @@ class DialogTurnManager:
         if _ADMIN_NEW_INTENT.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _PROFILE_BATCH2_NEW_INTENT.search(text):
+            return TurnType.NEW_QUERY_OVERRIDE
+        if _PROFILE_BATCH3_NEW_INTENT.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _CLEAR_NEW_INTENT.search(text) and (
             _QUERY_OR_COMMAND.search(text)

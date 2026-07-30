@@ -18,6 +18,63 @@ _READ_REFINEMENTS: tuple[
 ] = (
     (
         re.compile(
+            r"\b(?:người thân|quan hệ gia đình|vợ chồng|con cái|thân nhân)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_FAMILY_RELATIONS,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:khen thưởng|thành tích|bằng khen|"
+            r"quyết định khen thưởng)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_REWARDS,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:kỷ luật|xử lý kỷ luật|quyết định kỷ luật)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_DISCIPLINES,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:đánh giá nhân sự|xếp loại|kết quả đánh giá|"
+            r"nhận xét của đơn vị)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_EVALUATIONS,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:Đảng viên|Đoàn viên|ngày vào Đảng|ngày vào Đoàn|"
+            r"sinh hoạt Đoàn)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_PARTY_UNION,
+        None,
+    ),
+    (
+        re.compile(
+            r"\b(?:mục tiêu cá nhân|sở thích|điểm mạnh|điểm yếu)\b",
+            re.I,
+        ),
+        Domain.PROFILE,
+        Intent.PROFILE_PREFERENCES,
+        None,
+    ),
+    (
+        re.compile(
             r"\b(?:CCCD|CMND|căn cước|số căn cước|ngày cấp|nơi cấp|"
             r"quốc tịch|dân tộc|tôn giáo|giới tính|"
             r"tình trạng hôn nhân|tên gọi khác)\b",

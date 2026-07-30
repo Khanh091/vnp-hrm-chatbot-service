@@ -459,4 +459,154 @@ PROFILE_TOOLS = (
             "Quá trình đào tạo của tôi.",
         ),
     ),
+    _profile_tool(
+        name="profile_get_family_relations",
+        capability=Intent.PROFILE_FAMILY_RELATIONS.value,
+        intents=frozenset({Intent.PROFILE_FAMILY_RELATIONS}),
+        description=(
+            "Tra cứu nhóm quan hệ gia đình, người thân, vợ chồng, con cái và "
+            "thân nhân của chính người dùng."
+        ),
+        endpoint="family-relations",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Thông tin người thân của tôi.",
+            "Quan hệ gia đình của tôi.",
+            "Hồ sơ vợ chồng của tôi.",
+            "Thông tin con cái trong hồ sơ.",
+            "Danh sách thân nhân của tôi.",
+            "nguoi than cua toi",
+        ),
+        negative_examples=(
+            "Tình trạng hôn nhân của tôi.",
+            "Sở thích của tôi.",
+            "Danh sách nhân viên phòng Kế toán.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_rewards",
+        capability=Intent.PROFILE_REWARDS.value,
+        intents=frozenset({Intent.PROFILE_REWARDS}),
+        description=(
+            "Tra cứu lịch sử khen thưởng, thành tích, bằng khen và quyết định "
+            "khen thưởng của chính người dùng."
+        ),
+        endpoint="rewards",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Tôi đã được khen thưởng gì?",
+            "Các thành tích của tôi.",
+            "Bằng khen trong hồ sơ của tôi.",
+            "Lịch sử khen thưởng của tôi.",
+            "Các quyết định khen thưởng dành cho tôi.",
+            "khen thuong cua toi",
+        ),
+        negative_examples=(
+            "Lịch sử kỷ luật của tôi.",
+            "Kết quả đánh giá của tôi.",
+            "Chứng chỉ của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_disciplines",
+        capability=Intent.PROFILE_DISCIPLINES.value,
+        intents=frozenset({Intent.PROFILE_DISCIPLINES}),
+        description=(
+            "Tra cứu lịch sử kỷ luật, hình thức xử lý và quyết định kỷ luật "
+            "của chính người dùng."
+        ),
+        endpoint="disciplines",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Lịch sử kỷ luật của tôi.",
+            "Tôi từng bị xử lý kỷ luật chưa?",
+            "Các quyết định kỷ luật của tôi.",
+            "Hình thức kỷ luật trong hồ sơ.",
+            "Cho xem quá trình xử lý kỷ luật của tôi.",
+            "ky luat cua toi",
+        ),
+        negative_examples=(
+            "Tôi đã được khen thưởng gì?",
+            "Kết quả đánh giá gần nhất.",
+            "Lịch sử điều chuyển của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_evaluations",
+        capability=Intent.PROFILE_EVALUATIONS.value,
+        intents=frozenset({Intent.PROFILE_EVALUATIONS}),
+        description=(
+            "Tra cứu kết quả đánh giá nhân sự, xếp loại và nhận xét của đơn vị "
+            "đối với chính người dùng."
+        ),
+        endpoint="evaluations",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Kết quả đánh giá gần nhất của tôi.",
+            "Tôi được xếp loại thế nào?",
+            "Lịch sử đánh giá nhân sự của tôi.",
+            "Nhận xét của đơn vị về tôi.",
+            "Các kết quả đánh giá qua từng năm.",
+            "ket qua danh gia cua toi",
+        ),
+        negative_examples=(
+            "Lịch sử khen thưởng của tôi.",
+            "Quá trình bổ nhiệm của tôi.",
+            "Mục tiêu cá nhân của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_party_union",
+        capability=Intent.PROFILE_PARTY_UNION.value,
+        intents=frozenset({Intent.PROFILE_PARTY_UNION}),
+        description=(
+            "Tra cứu thông tin Đảng, Đoàn và lịch sử sinh hoạt Đoàn của chính "
+            "người dùng."
+        ),
+        endpoint="party-union",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Tôi có phải Đảng viên không?",
+            "Tôi vào Đảng ngày nào?",
+            "Ngày vào Đoàn của tôi.",
+            "Tôi có phải Đoàn viên không?",
+            "Lịch sử sinh hoạt Đoàn của tôi.",
+            "ngay vao doan cua toi",
+        ),
+        negative_examples=(
+            "Tôn giáo của tôi.",
+            "Sở thích của tôi.",
+            "Quá trình bổ nhiệm của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_preferences",
+        capability=Intent.PROFILE_PREFERENCES.value,
+        intents=frozenset({Intent.PROFILE_PREFERENCES}),
+        description=(
+            "Tra cứu mục tiêu cá nhân, sở thích, điểm mạnh và điểm yếu của "
+            "chính người dùng."
+        ),
+        endpoint="preferences",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        examples=(
+            "Sở thích của tôi.",
+            "Mục tiêu cá nhân của tôi là gì?",
+            "Điểm mạnh trong hồ sơ của tôi.",
+            "Điểm yếu của tôi đang được lưu thế nào?",
+            "Thông tin sở trường cá nhân của tôi.",
+            "so thich cua toi",
+        ),
+        negative_examples=(
+            "Sở trường công tác khi tuyển dụng.",
+            "Kết quả đánh giá của tôi.",
+            "Kỹ năng chuyên môn của tôi.",
+        ),
+    ),
 )

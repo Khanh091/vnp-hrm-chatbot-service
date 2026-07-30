@@ -513,4 +513,148 @@ DIRECTORY_TOOLS = (
             "Quá trình bổ nhiệm của nhân viên đó.",
         ),
     ),
+    _named_profile_tool(
+        name="employee_get_family_relations",
+        capability=Intent.PROFILE_FAMILY_RELATIONS,
+        intents=frozenset({Intent.PROFILE_FAMILY_RELATIONS}),
+        endpoint="family-relations",
+        description=(
+            "Tra cứu quan hệ gia đình, người thân và thân nhân của một nhân "
+            "viên đã resolve."
+        ),
+        examples=(
+            "Người thân của Lò Văn Định.",
+            "Quan hệ gia đình của nhân viên đó.",
+            "Thông tin vợ chồng của nhân viên mã 00234086.",
+            "Con cái của người vừa tìm.",
+            "Danh sách thân nhân của cán bộ này.",
+            "nguoi than cua lo van dinh",
+        ),
+        negative_examples=(
+            "Người thân của tôi.",
+            "Tình trạng hôn nhân của Lò Văn Định.",
+            "Danh sách nhân viên phòng Kế toán.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_rewards",
+        capability=Intent.PROFILE_REWARDS,
+        intents=frozenset({Intent.PROFILE_REWARDS}),
+        endpoint="rewards",
+        description=(
+            "Tra cứu khen thưởng, thành tích, bằng khen và quyết định khen "
+            "thưởng của một nhân viên đã resolve."
+        ),
+        examples=(
+            "Lò Văn Định đã được khen thưởng gì?",
+            "Thành tích của nhân viên đó.",
+            "Bằng khen của nhân viên mã 00234086.",
+            "Lịch sử khen thưởng của người vừa tìm.",
+            "Quyết định khen thưởng của cán bộ này.",
+            "khen thuong cua lo van dinh",
+        ),
+        negative_examples=(
+            "Tôi đã được khen thưởng gì?",
+            "Kỷ luật của Lò Văn Định.",
+            "Chứng chỉ của nhân viên đó.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_disciplines",
+        capability=Intent.PROFILE_DISCIPLINES,
+        intents=frozenset({Intent.PROFILE_DISCIPLINES}),
+        endpoint="disciplines",
+        description=(
+            "Tra cứu lịch sử và quyết định kỷ luật của một nhân viên đã "
+            "resolve."
+        ),
+        examples=(
+            "Kỷ luật của Lò Văn Định.",
+            "Nhân viên đó từng bị xử lý kỷ luật chưa?",
+            "Quyết định kỷ luật của nhân viên mã 00234086.",
+            "Lịch sử kỷ luật của người vừa tìm.",
+            "Hình thức kỷ luật của cán bộ này.",
+            "ky luat cua lo van dinh",
+        ),
+        negative_examples=(
+            "Lịch sử kỷ luật của tôi.",
+            "Khen thưởng của Lò Văn Định.",
+            "Lịch sử điều chuyển của nhân viên đó.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_evaluations",
+        capability=Intent.PROFILE_EVALUATIONS,
+        intents=frozenset({Intent.PROFILE_EVALUATIONS}),
+        endpoint="evaluations",
+        description=(
+            "Tra cứu kết quả đánh giá, xếp loại và nhận xét đơn vị của một "
+            "nhân viên đã resolve."
+        ),
+        examples=(
+            "Kết quả đánh giá của Lò Văn Định.",
+            "Nhân viên đó được xếp loại thế nào?",
+            "Lịch sử đánh giá của nhân viên mã 00234086.",
+            "Nhận xét đơn vị về người vừa tìm.",
+            "Đánh giá gần nhất của cán bộ này.",
+            "danh gia cua lo van dinh",
+        ),
+        negative_examples=(
+            "Kết quả đánh giá của tôi.",
+            "Khen thưởng của Lò Văn Định.",
+            "Quá trình bổ nhiệm của nhân viên đó.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_party_union",
+        capability=Intent.PROFILE_PARTY_UNION,
+        intents=frozenset({Intent.PROFILE_PARTY_UNION}),
+        endpoint="party-union",
+        description=(
+            "Tra cứu thông tin Đảng, Đoàn và sinh hoạt Đoàn của một nhân viên "
+            "đã resolve."
+        ),
+        examples=(
+            "Lò Văn Định có phải Đảng viên không?",
+            "Ngày vào Đảng của nhân viên đó.",
+            "Nhân viên mã 00234086 vào Đoàn ngày nào?",
+            "Lịch sử sinh hoạt Đoàn của người vừa tìm.",
+            "Cán bộ này có phải Đoàn viên không?",
+            "ngay vao doan cua lo van dinh",
+        ),
+        negative_examples=(
+            "Tôi có phải Đảng viên không?",
+            "Tôn giáo của Lò Văn Định.",
+            "Sở thích của nhân viên đó.",
+        ),
+        sensitive=True,
+    ),
+    _named_profile_tool(
+        name="employee_get_preferences",
+        capability=Intent.PROFILE_PREFERENCES,
+        intents=frozenset({Intent.PROFILE_PREFERENCES}),
+        endpoint="preferences",
+        description=(
+            "Tra cứu mục tiêu cá nhân, sở thích, điểm mạnh và điểm yếu của một "
+            "nhân viên đã resolve."
+        ),
+        examples=(
+            "Sở thích của Lò Văn Định.",
+            "Mục tiêu cá nhân của nhân viên đó.",
+            "Điểm mạnh của nhân viên mã 00234086.",
+            "Điểm yếu của người vừa tìm.",
+            "Thông tin sở thích của cán bộ này.",
+            "so thich cua lo van dinh",
+        ),
+        negative_examples=(
+            "Sở thích của tôi.",
+            "Sở trường công tác của Lò Văn Định.",
+            "Kỹ năng của nhân viên đó.",
+        ),
+        sensitive=True,
+    ),
 )

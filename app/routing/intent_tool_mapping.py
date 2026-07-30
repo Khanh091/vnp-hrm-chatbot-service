@@ -53,6 +53,30 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.PROFILE_CERTIFICATES: ("profile_get_certificates",),
     Intent.PROFILE_SKILLS: ("profile_get_skills",),
     Intent.PROFILE_INSURANCE: ("profile_get_insurance",),
+    Intent.PROFILE_FAMILY_RELATIONS: (
+        "profile_get_family_relations",
+        "employee_get_family_relations",
+    ),
+    Intent.PROFILE_REWARDS: (
+        "profile_get_rewards",
+        "employee_get_rewards",
+    ),
+    Intent.PROFILE_DISCIPLINES: (
+        "profile_get_disciplines",
+        "employee_get_disciplines",
+    ),
+    Intent.PROFILE_EVALUATIONS: (
+        "profile_get_evaluations",
+        "employee_get_evaluations",
+    ),
+    Intent.PROFILE_PARTY_UNION: (
+        "profile_get_party_union",
+        "employee_get_party_union",
+    ),
+    Intent.PROFILE_PREFERENCES: (
+        "profile_get_preferences",
+        "employee_get_preferences",
+    ),
     Intent.PROFILE_TAX: ("profile_get_tax",),
     Intent.PROFILE_BANK_ACCOUNTS: ("profile_get_bank_accounts",),
     Intent.PROFILE_BANK_TAX: (

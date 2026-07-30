@@ -51,6 +51,17 @@ Phân biệt profile:
   profile.appointment_history
 - điều chuyển, luân chuyển, chuyển đơn vị hoặc lịch sử điều chuyển =>
   profile.transfer_history
+- người thân, quan hệ gia đình, vợ chồng, con cái, thân nhân =>
+  profile.family_relations
+- khen thưởng, thành tích, bằng khen, quyết định khen thưởng =>
+  profile.rewards
+- kỷ luật, xử lý hoặc quyết định kỷ luật => profile.disciplines
+- đánh giá nhân sự, xếp loại, kết quả đánh giá, nhận xét của đơn vị =>
+  profile.evaluations
+- Đảng viên, Đoàn viên, ngày vào Đảng/Đoàn, sinh hoạt Đoàn =>
+  profile.party_union
+- mục tiêu cá nhân, sở thích, điểm mạnh, điểm yếu =>
+  profile.preferences
 
 Phân biệt leave:
 - còn lại => leave.balance; đã dùng => leave.used; danh sách đơn => leave.history
