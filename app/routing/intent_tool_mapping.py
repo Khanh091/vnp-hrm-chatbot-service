@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.routing.taxonomy import Intent
 
 INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
+    Intent.PROFILE_BASIC: ("profile_get_summary",),
     Intent.PROFILE_SUMMARY: ("profile_get_summary",),
     Intent.PROFILE_EMPLOYEE_CODE: ("profile_get_summary",),
     Intent.PROFILE_JOB_TITLE: ("profile_get_employment",),
@@ -21,6 +22,11 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.PROFILE_INSURANCE: ("profile_get_insurance",),
     Intent.PROFILE_TAX: ("profile_get_tax",),
     Intent.PROFILE_BANK_ACCOUNTS: ("profile_get_bank_accounts",),
+    Intent.PROFILE_BANK_TAX: (
+        "profile_get_bank_accounts",
+        "profile_get_tax",
+    ),
+    Intent.PROFILE_TRAINING_HISTORY: ("profile_get_education",),
     Intent.PROFILE_CONTRACTS: ("profile_get_contracts",),
     Intent.PROFILE_CONTRACT_EXPIRY: ("profile_get_contracts",),
     Intent.ATTENDANCE_DAILY: ("attendance_get_daily",),
@@ -56,6 +62,10 @@ INTENT_TO_TOOL_NAMES: dict[Intent, tuple[str, ...]] = {
     Intent.LEAVE_CREATE: ("leave_create_request",),
     Intent.LEAVE_UPDATE: ("leave_update_request",),
     Intent.LEAVE_CANCEL: ("leave_cancel_request",),
+    # These names are reserved for allowlisted directory tools. They are only
+    # selectable when the runtime registry actually contains the definition.
+    Intent.DIRECTORY_EMPLOYEE_DEPARTMENT: ("employee_get_employment",),
+    Intent.DIRECTORY_DEPARTMENT_EMPLOYEES: ("department_list_employees",),
 }
 
 

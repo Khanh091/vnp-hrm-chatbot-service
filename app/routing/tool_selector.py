@@ -24,6 +24,8 @@ _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
     "company_id",
+    "company_ids",
+    "group_codes",
     "conversation_id",
     "timezone",
 }

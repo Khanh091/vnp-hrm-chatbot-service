@@ -70,6 +70,7 @@ class ChatGraphState(TypedDict, total=False):
     missing_arguments: list[str]
     ambiguous_arguments: list[str]
     workflow_data: dict[str, Any]
+    entity_memory: dict[str, Any]
     pending_action_id: str | None
     pending_action: dict[str, Any]
     tool_result: dict[str, Any] | None

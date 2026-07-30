@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.json import json_safe_dict
 from app.persistence.models.conversation import Conversation
 
-_JSON_OBJECT_FIELDS = {"collected_arguments", "workflow_data"}
+_JSON_OBJECT_FIELDS = {
+    "collected_arguments",
+    "workflow_data",
+    "entity_memory",
+}
 
 
 class ConversationRepository:

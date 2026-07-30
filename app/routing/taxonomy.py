@@ -56,7 +56,16 @@ class SubjectScope(str, Enum):
     DIRECT_REPORTS = "direct_reports"
 
 
+class SubjectType(str, Enum):
+    SELF = "self"
+    EMPLOYEE = "employee"
+    DEPARTMENT = "department"
+    COMPANY = "company"
+    GENERAL = "general"
+
+
 class Intent(str, Enum):
+    PROFILE_BASIC = "profile.basic"
     PROFILE_SUMMARY = "profile.summary"
     PROFILE_EMPLOYEE_CODE = "profile.employee_code"
     PROFILE_JOB_TITLE = "profile.job_title"
@@ -64,17 +73,31 @@ class Intent(str, Enum):
     PROFILE_WORK_UNIT = "profile.work_unit"
     PROFILE_MANAGER = "profile.manager"
     PROFILE_CONTACT = "profile.contact"
+    PROFILE_IDENTITY = "profile.identity"
+    PROFILE_ADDRESS = "profile.address"
+    PROFILE_RECRUITMENT = "profile.recruitment"
+    PROFILE_BANK_TAX = "profile.bank_tax"
     PROFILE_EMPLOYMENT = "profile.employment"
     PROFILE_WORK_HISTORY = "profile.work_history"
     PROFILE_APPOINTMENT_HISTORY = "profile.appointment_history"
     PROFILE_TRANSFER_HISTORY = "profile.transfer_history"
     PROFILE_EDUCATION = "profile.education"
     PROFILE_CERTIFICATES = "profile.certificates"
+    PROFILE_TRAINING_HISTORY = "profile.training_history"
     PROFILE_SKILLS = "profile.skills"
     PROFILE_HISTORY = "profile.history"
     PROFILE_CONTRACTS = "profile.contracts"
     PROFILE_CONTRACT_EXPIRY = "profile.contract_expiry"
     PROFILE_INSURANCE = "profile.insurance"
+    PROFILE_FAMILY_RELATIONS = "profile.family_relations"
+    PROFILE_REWARDS = "profile.rewards"
+    PROFILE_DISCIPLINES = "profile.disciplines"
+    PROFILE_EVALUATIONS = "profile.evaluations"
+    PROFILE_PARTY_UNION = "profile.party_union"
+    PROFILE_PERSONAL_BACKGROUND = "profile.personal_background"
+    PROFILE_PREFERENCES = "profile.preferences"
+    PROFILE_FAMILY_ECONOMY = "profile.family_economy"
+    PROFILE_HEALTH = "profile.health"
     PROFILE_TAX = "profile.tax"
     PROFILE_BANK_ACCOUNTS = "profile.bank_accounts"
 
@@ -106,6 +129,16 @@ class Intent(str, Enum):
     ATTENDANCE_LATE_SUMMARY = "attendance.late_summary"
     ATTENDANCE_MISSING_PUNCH = "attendance.missing_punch"
     ATTENDANCE_MISSING_WORK_CONTEXT = "attendance.missing_work_context"
+
+    DIRECTORY_EMPLOYEE_SEARCH = "directory.employee_search"
+    DIRECTORY_EMPLOYEE_PROFILE = "directory.employee_profile"
+    DIRECTORY_EMPLOYEE_DEPARTMENT = "directory.employee_department"
+    DIRECTORY_DEPARTMENT_EMPLOYEES = "directory.department_employees"
+    DIRECTORY_EMPLOYEE_BY_CERTIFICATE = "directory.employee_by_certificate"
+
+    REPORT_CONTRACTS_EXPIRING = "report.contracts_expiring"
+    REPORT_TERMINATED_EMPLOYEES = "report.terminated_employees"
+    REPORT_DEPARTMENT_HR_SUMMARY = "report.department_hr_summary"
 
     KNOWLEDGE_LEAVE_POLICY = "knowledge.leave_policy"
     KNOWLEDGE_ATTENDANCE_POLICY = "knowledge.attendance_policy"

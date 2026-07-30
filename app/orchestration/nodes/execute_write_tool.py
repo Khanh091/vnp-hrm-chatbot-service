@@ -14,7 +14,7 @@ from app.context.entities import ResolvedSubject
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState
-from app.routing.taxonomy import SubjectScope
+from app.routing.taxonomy import SubjectScope, SubjectType
 from app.security.authorization import AuthorizationDecision, AuthorizationRequest
 from app.tools.definitions import (
     ToolExecutionResult,
@@ -60,7 +60,7 @@ async def execute_write_tool_node(
             scope=SubjectScope.SELF,
             trusted_context=trusted,
             resolved_subject=ResolvedSubject(
-                scope=SubjectScope.SELF,
+                type=SubjectType.SELF,
                 employee_id=trusted.employee_id,
                 source="trusted_context",
             ),

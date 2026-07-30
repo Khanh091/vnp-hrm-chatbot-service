@@ -85,6 +85,7 @@ class ConversationService:
         missing_arguments: list[str] | None = None,
         ambiguous_arguments: list[str] | None = None,
         workflow_data: dict[str, Any] | None = None,
+        entity_memory: dict[str, Any] | None = None,
     ) -> None:
         if status not in {
             ConversationStatus.AWAITING_CLARIFICATION,
@@ -104,6 +105,11 @@ class ConversationService:
             "missing_arguments": missing_arguments or [],
             "ambiguous_arguments": ambiguous_arguments or [],
             "workflow_data": workflow_data or {},
+            "entity_memory": (
+                entity_memory
+                if entity_memory is not None
+                else conversation.entity_memory
+            ),
             "last_message_at": now,
             "expires_at": now + timedelta(seconds=self._ttl),
         }

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import date as DateValue
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.routing.taxonomy import SubjectScope
+from app.routing.taxonomy import SubjectScope, SubjectType
 
 
 class TemporalEntities(BaseModel):
@@ -68,15 +68,63 @@ class ExtractedEntities(BaseModel):
         return value
 
 
+class SubjectMention(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: SubjectType
+    employee_name: str | None = Field(default=None, max_length=200)
+    employee_code: str | None = Field(default=None, max_length=100)
+    department_name: str | None = Field(default=None, max_length=200)
+    ordinal_reference: int | None = Field(default=None, gt=0)
+    recency_reference: Literal[
+        "latest",
+        "previous",
+        "first",
+        "last",
+    ] | None = None
+
+
 class ResolvedSubject(BaseModel):
     """A subject resolved by trusted context, structured UI, or an Odoo lookup."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: SubjectScope
+    type: SubjectType
     employee_id: int | None = Field(default=None, gt=0)
-    employee_name: str | None = Field(default=None, max_length=200)
     employee_code: str | None = Field(default=None, max_length=100)
+    employee_name: str | None = Field(default=None, max_length=200)
+    department_id: int | None = Field(default=None, gt=0)
+    department_name: str | None = Field(default=None, max_length=200)
+    company_id: int | None = Field(default=None, gt=0)
     source: str = Field(
+        default="odoo_lookup",
         pattern=r"^(trusted_context|structured_option|odoo_lookup)$"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_scope(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        scope = data.pop("scope", None)
+        if "type" not in data and scope is not None:
+            scope_value = str(getattr(scope, "value", scope))
+            data["type"] = {
+                SubjectScope.SELF.value: SubjectType.SELF,
+                SubjectScope.NAMED_EMPLOYEE.value: SubjectType.EMPLOYEE,
+                SubjectScope.DEPARTMENT.value: SubjectType.DEPARTMENT,
+                SubjectScope.COMPANY.value: SubjectType.COMPANY,
+                SubjectScope.GENERAL.value: SubjectType.GENERAL,
+            }.get(scope_value, SubjectType.GENERAL)
+        return data
+
+    @property
+    def scope(self) -> SubjectScope:
+        return {
+            SubjectType.SELF: SubjectScope.SELF,
+            SubjectType.EMPLOYEE: SubjectScope.NAMED_EMPLOYEE,
+            SubjectType.DEPARTMENT: SubjectScope.DEPARTMENT,
+            SubjectType.COMPANY: SubjectScope.COMPANY,
+            SubjectType.GENERAL: SubjectScope.GENERAL,
+        }[self.type]

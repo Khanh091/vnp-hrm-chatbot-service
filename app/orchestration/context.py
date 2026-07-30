@@ -6,8 +6,10 @@ from app.config import Settings
 from app.context.conversation_service import ConversationService
 from app.context.date_resolver import DateResolver
 from app.context.dialog_manager import DialogTurnManager
+from app.context.entity_memory import EntityMemoryService
 from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
 from app.context.pending_action_service import PendingActionService
+from app.context.subject_resolver import SubjectResolver
 from app.routing.argument_resolver import ArgumentResolver
 from app.routing.candidate_retriever import CandidateRetriever
 from app.routing.query_classifier import QueryClassifier
@@ -33,6 +35,8 @@ class GraphContext:
     dialog_turn_manager: DialogTurnManager
     entity_resolver: EntityResolver
     business_entity_resolver: BusinessEntityResolver
+    subject_resolver: SubjectResolver
+    entity_memory_service: EntityMemoryService
     validator: ToolSelectionValidator
     authorization_policy: AuthorizationPolicyService
     tool_executor: ToolExecutor

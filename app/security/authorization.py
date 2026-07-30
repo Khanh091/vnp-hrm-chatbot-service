@@ -16,6 +16,8 @@ _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
     "company_id",
+    "company_ids",
+    "group_codes",
     "conversation_id",
     "timezone",
     "language",
@@ -110,6 +112,8 @@ class AuthorizationPolicyService:
         if request.scope.value not in supported_scopes:
             return self._deny("SCOPE_NOT_ALLOWED")
         if request.scope is SubjectScope.SELF:
+            if request.trusted_context.linked_employee_id is None:
+                return self._deny("SELF_EMPLOYEE_NOT_LINKED")
             subject = request.resolved_subject
             if subject is not None:
                 if subject.scope is not SubjectScope.SELF:

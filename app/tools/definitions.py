@@ -2,18 +2,23 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from app.routing.taxonomy import Intent, QueryRoute
+from app.routing.taxonomy import Intent, QueryRoute, SubjectType
 from app.routing.taxonomy import Operation as QueryOperation
+
+if TYPE_CHECKING:
+    from app.context.actor import ActorContext
 
 
 class Domain(str, Enum):
     PROFILE = "profile"
     ATTENDANCE = "attendance"
     LEAVE = "leave"
+    DIRECTORY = "directory"
+    REPORTING = "reporting"
 
 
 class RouteType(str, Enum):
@@ -137,10 +142,29 @@ class TrustedExecutionContext(BaseModel):
     odoo_user_id: int = Field(gt=0)
     employee_id: int | None = Field(default=None, gt=0)
     company_id: int | None = Field(default=None, gt=0)
+    company_ids: tuple[int, ...] = ()
+    group_codes: tuple[str, ...] = ()
     timezone: str = Field(default="Asia/Ho_Chi_Minh", min_length=1, max_length=64)
     language: str | None = Field(default=None, max_length=32)
     conversation_id: str = Field(default="unknown", min_length=1, max_length=128)
     request_id: str = Field(min_length=1, max_length=128)
+
+    @property
+    def linked_employee_id(self) -> int | None:
+        return self.employee_id
+
+    @property
+    def actor_context(self) -> ActorContext:
+        from app.context.actor import ActorContext
+
+        return ActorContext(
+            odoo_user_id=self.odoo_user_id,
+            company_ids=self.company_ids,
+            group_codes=self.group_codes,
+            locale=self.language or "vi_VN",
+            timezone=self.timezone,
+            linked_employee_id=self.employee_id,
+        )
 
 
 class ValidatedToolExecution(BaseModel):
@@ -175,6 +199,7 @@ class ToolDefinition(BaseModel):
     examples: tuple[str, ...]
     negative_examples: tuple[str, ...]
     supported_scopes: tuple[SubjectScope, ...] = (SubjectScope.SELF,)
+    supported_subject_types: tuple[SubjectType, ...] = ()
     requires_confirmation: bool = False
     enabled: bool = True
     version: str = "1.0"
@@ -207,6 +232,21 @@ class ToolDefinition(BaseModel):
             raise ValueError("tool query route does not match route_type")
         object.__setattr__(self, "intent", intent_value)
         object.__setattr__(self, "route", expected_route)
+        if not self.supported_subject_types:
+            subject_types = tuple(
+                {
+                    SubjectScope.SELF: SubjectType.SELF,
+                    SubjectScope.NAMED_EMPLOYEE: SubjectType.EMPLOYEE,
+                    SubjectScope.DEPARTMENT: SubjectType.DEPARTMENT,
+                    SubjectScope.COMPANY: SubjectType.COMPANY,
+                }[scope]
+                for scope in self.supported_scopes
+            )
+            object.__setattr__(
+                self,
+                "supported_subject_types",
+                subject_types,
+            )
         return self
 
     @property

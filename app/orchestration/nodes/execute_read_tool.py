@@ -4,10 +4,13 @@ from langgraph.runtime import Runtime
 
 from app.context.conversation import ConversationStatus
 from app.context.entities import ResolvedSubject
+from app.context.entity_memory import ConversationEntityMemory
+from app.context.subject_resolver import SubjectResolution
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import routing_context_value, stage_update
 from app.orchestration.state import ChatGraphState
 from app.routing.schemas import QueryClassification
+from app.routing.taxonomy import SubjectType
 from app.security.authorization import AuthorizationDecision, AuthorizationRequest
 from app.tools.definitions import (
     ToolExecutionResult,
@@ -27,6 +30,21 @@ async def execute_read_tool_node(
         routing_context_value(state, "classification")
     )
     assert classification.intent is not None
+    persisted_subject_resolution = state.get("workflow_data", {}).get(
+        "subject_resolution"
+    )
+    resolved_subject = None
+    if isinstance(persisted_subject_resolution, dict):
+        subject_resolution = SubjectResolution.model_validate(
+            persisted_subject_resolution
+        )
+        resolved_subject = subject_resolution.subject
+    if resolved_subject is None and classification.scope.value == "self":
+        resolved_subject = ResolvedSubject(
+            type=SubjectType.SELF,
+            employee_id=trusted.employee_id,
+            source="trusted_context",
+        )
     decision = runtime.context.authorization_policy.authorize(
         AuthorizationRequest(
             tool_name=tool_name,
@@ -34,15 +52,7 @@ async def execute_read_tool_node(
             operation=classification.operation,
             scope=classification.scope,
             trusted_context=trusted,
-            resolved_subject=(
-                ResolvedSubject(
-                    scope=classification.scope,
-                    employee_id=trusted.employee_id,
-                    source="trusted_context",
-                )
-                if classification.scope.value == "self"
-                else None
-            ),
+            resolved_subject=resolved_subject,
         ),
         allowed_tools={
             str(candidate["tool_name"])
@@ -77,6 +87,15 @@ async def execute_read_tool_node(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),
     )
+    entity_memory = ConversationEntityMemory.model_validate(
+        state.get("entity_memory", {})
+    )
+    if result.success:
+        entity_memory = runtime.context.entity_memory_service.capture(
+            tool_name=tool_name,
+            data=result.data,
+            memory=entity_memory,
+        )
     await runtime.context.conversation_service.update(
         conversation,
         status=(
@@ -84,6 +103,7 @@ async def execute_read_tool_node(
             if result.success
             else ConversationStatus.FAILED
         ),
+        entity_memory=entity_memory.model_dump(mode="json"),
     )
     update = stage_update(
         state,
@@ -98,4 +118,5 @@ async def execute_read_tool_node(
     )
     update["tool_result"] = result.model_dump(mode="json")
     update["authorization"] = decision.model_dump(mode="json")
+    update["entity_memory"] = entity_memory.model_dump(mode="json")
     return update

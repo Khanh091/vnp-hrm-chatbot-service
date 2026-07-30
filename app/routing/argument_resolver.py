@@ -14,6 +14,8 @@ _TRUSTED_FIELDS = {
     "odoo_user_id",
     "employee_id",
     "company_id",
+    "company_ids",
+    "group_codes",
     "conversation_id",
     "timezone",
 }
@@ -32,7 +34,7 @@ _QUESTIONS = {
     "date_to": "Bạn muốn kết thúc vào ngày nào?",
     "leave_type_id": "Bạn muốn sử dụng loại nghỉ nào?",
     "reason": "Bạn muốn ghi lý do nghỉ là gì?",
-    "request_id": "Bạn muốn thao tác với đơn nghỉ nào?",
+    "request_id": "Bạn muốn xem trạng thái của đơn nghỉ nào?",
 }
 
 

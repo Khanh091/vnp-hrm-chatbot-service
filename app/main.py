@@ -32,8 +32,10 @@ from app.config import Settings, get_settings
 from app.context.conversation_service import ConversationService, ConversationStateError
 from app.context.date_resolver import DateResolver
 from app.context.dialog_manager import DialogTurnManager
+from app.context.entity_memory import EntityMemoryService
 from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
 from app.context.pending_action_service import PendingActionError, PendingActionService
+from app.context.subject_resolver import SubjectResolver
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
 from app.llm.client import (
@@ -173,6 +175,8 @@ def create_app(
                 dialog_turn_manager=DialogTurnManager(),
                 entity_resolver=EntityResolver(),
                 business_entity_resolver=BusinessEntityResolver(),
+                subject_resolver=SubjectResolver(),
+                entity_memory_service=EntityMemoryService(),
                 validator=validator,
                 authorization_policy=AuthorizationPolicyService(registry),
                 tool_executor=executor,

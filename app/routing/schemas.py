@@ -43,6 +43,8 @@ class Domain(str, Enum):
     PROFILE = "profile"
     ATTENDANCE = "attendance"
     LEAVE = "leave"
+    DIRECTORY = "directory"
+    REPORTING = "reporting"
     GENERAL = "general"
 
 

@@ -4,6 +4,7 @@ from app.routing.intent_tool_mapping import tool_names_for_intent
 from app.routing.taxonomy import (
     Intent,
     QueryRoute,
+    SubjectType,
 )
 from app.routing.taxonomy import (
     Operation as QueryOperation,
@@ -91,7 +92,16 @@ class ToolRegistry:
             and (operation is None or tool.query_operation is operation)
             and (
                 scope is None
-                or any(item.value == scope.value for item in tool.supported_scopes)
+                or {
+                    QuerySubjectScope.SELF: SubjectType.SELF,
+                    QuerySubjectScope.NAMED_EMPLOYEE: SubjectType.EMPLOYEE,
+                    QuerySubjectScope.DEPARTMENT: SubjectType.DEPARTMENT,
+                    QuerySubjectScope.COMPANY: SubjectType.COMPANY,
+                    QuerySubjectScope.GENERAL: SubjectType.GENERAL,
+                    QuerySubjectScope.UNKNOWN: SubjectType.GENERAL,
+                    QuerySubjectScope.DIRECT_REPORTS: SubjectType.EMPLOYEE,
+                }[scope]
+                in tool.supported_subject_types
             )
             and (not enabled or tool.enabled)
         )

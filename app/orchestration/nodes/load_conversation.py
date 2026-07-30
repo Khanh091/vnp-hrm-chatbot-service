@@ -31,6 +31,7 @@ async def load_conversation_node(
             "missing_arguments": item.missing_arguments,
             "ambiguous_arguments": item.ambiguous_arguments,
             "workflow_data": item.workflow_data,
+            "entity_memory": item.entity_memory,
         }
     )
     return update

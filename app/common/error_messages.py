@@ -9,6 +9,12 @@ _MESSAGES = {
     "MISSING_ARGUMENT": "Cần bổ sung thêm thông tin.",
     "MISSING_REQUIRED_ARGUMENT": "Cần bổ sung thêm thông tin.",
     "ACCESS_DENIED": "Bạn không có quyền truy cập thông tin này.",
+    "SELF_EMPLOYEE_NOT_LINKED": (
+        "Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên."
+    ),
+    "SUBJECT_LOOKUP_NOT_AVAILABLE": (
+        "Chức năng tra cứu nhân viên hoặc phòng ban hiện chưa khả dụng."
+    ),
     "SCOPE_NOT_ALLOWED": "Bạn không có quyền truy cập thông tin này.",
     "SECURITY_REJECTED": "Yêu cầu bị từ chối vì lý do an toàn.",
     "TRUSTED_FIELD_INJECTION": "Yêu cầu bị từ chối vì lý do an toàn.",
@@ -62,6 +68,7 @@ def category_for_error(reason_code: str | None) -> ValidationIssueCategory:
         "SUBJECT_NOT_RESOLVED",
         "SUBJECT_CONTEXT_MISMATCH",
         "WRITE_CONFIRMATION_REQUIRED",
+        "SELF_EMPLOYEE_NOT_LINKED",
     }:
         return ValidationIssueCategory.AUTHORIZATION
     if reason_code in {

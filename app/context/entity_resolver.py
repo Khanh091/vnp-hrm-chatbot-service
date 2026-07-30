@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -7,9 +9,11 @@ from app.context.entities import (
     BusinessEntities,
     EntityAmbiguity,
     ExtractedEntities,
+    SubjectMention,
     TemporalEntities,
 )
 from app.routing.schemas import SubjectScope
+from app.routing.taxonomy import SubjectType
 
 
 class ResolvedEntities(BaseModel):
@@ -77,25 +81,36 @@ class EntityResolver:
     _REQUEST_CODE = re.compile(
         r"\b(?:đơn(?:\s+nghỉ)?|yêu cầu)\s*(?:mã|số)?\s*"
         r"(?P<code>(?:LEAVE-)?\d+)\b",
-        re.IGNORECASE,
+        re.I,
     )
     _EMPLOYEE = re.compile(
         r"\b(?:anh|chị|ông|bà|nhân viên)\s+"
-        r"(?P<name>[A-ZÀ-Ỹ][\wÀ-ỹ]*(?:\s+[A-ZÀ-Ỹ][\wÀ-ỹ]*){1,5})",
+        r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*"
+        r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})",
+    )
+    _BARE_EMPLOYEE = re.compile(
+        r"\b(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*"
+        r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})"
+        r"\s+(?:ở|thuộc|làm việc)\b",
+    )
+    _DEPARTMENT = re.compile(
+        r"\b(?:phòng|ban|đơn vị)\s+"
+        r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ]*(?:\s+[\wÀ-ỹĐđ/-]+){0,8})",
+        re.I,
     )
     _EMPLOYEE_CODE = re.compile(
         r"\b(?:mã nhân viên|mã nhân sự|mã nv)\s*[:#-]?\s*"
         r"(?P<code>[A-Z0-9][A-Z0-9._-]{1,30})\b",
-        re.IGNORECASE,
+        re.I,
     )
     _CONTRACT_CODE = re.compile(
         r"\b(?:hợp đồng|contract)\s*(?:mã|số)?\s*"
         r"(?P<code>[A-Z][A-Z0-9._/-]{2,40})\b",
-        re.IGNORECASE,
+        re.I,
     )
     _REASON = re.compile(
         r"\b(?:lý do|vì)\s*[:\-]?\s*(?P<reason>[^,.!?]{2,500})",
-        re.IGNORECASE,
+        re.I,
     )
 
     def extract(self, text: str) -> ExtractedEntities:
@@ -174,29 +189,87 @@ class EntityResolver:
             ),
         )
 
+    def extract_subject(self, text: str) -> SubjectMention:
+        normalized = " ".join(text.strip().split())
+        employee_code = self._EMPLOYEE_CODE.search(normalized)
+        employee = self._EMPLOYEE.search(normalized)
+        bare_employee = self._BARE_EMPLOYEE.search(normalized)
+        department = self._DEPARTMENT.search(normalized)
+        recency: Literal["latest", "previous", "first", "last"] | None = (
+            "latest"
+            if re.search(r"\b(?:gần nhất|mới nhất)\b", normalized, re.I)
+            else "previous"
+            if re.search(r"\b(?:trước đó|trước)\b", normalized, re.I)
+            else "first"
+            if re.search(r"\bđầu tiên\b", normalized, re.I)
+            else "last"
+            if re.search(r"\bcuối cùng\b", normalized, re.I)
+            else None
+        )
+        ordinal_match = re.search(
+            r"\b(?:thứ|số)\s*(?P<ordinal>\d{1,3})\b",
+            normalized,
+            re.I,
+        )
+        employee_name = (
+            employee.group("name")
+            if employee
+            else bare_employee.group("name")
+            if bare_employee
+            else None
+        )
+        subject_type = (
+            SubjectType.EMPLOYEE
+            if employee_name or employee_code
+            else SubjectType.DEPARTMENT
+            if department
+            else SubjectType.SELF
+            if re.search(r"\b(?:tôi|của tôi|đơn)\b", normalized, re.I)
+            else SubjectType.GENERAL
+        )
+        return SubjectMention(
+            type=subject_type,
+            employee_name=employee_name,
+            employee_code=(
+                employee_code.group("code") if employee_code else None
+            ),
+            department_name=(
+                department.group("name").strip() if department else None
+            ),
+            ordinal_reference=(
+                int(ordinal_match.group("ordinal"))
+                if ordinal_match
+                else 1
+                if recency == "first"
+                else None
+            ),
+            recency_reference=recency,
+        )
+
     def resolve(self, text: str) -> ResolvedEntities:
         request = self._REQUEST_CODE.search(text)
-        employee = self._EMPLOYEE.search(text)
+        employee = self._EMPLOYEE.search(text) or self._BARE_EMPLOYEE.search(text)
+        department = self._DEPARTMENT.search(text)
         scope = (
             SubjectScope.NAMED_EMPLOYEE
             if employee is not None
             else SubjectScope.COMPANY
-            if re.search(r"\btoàn công ty\b", text, re.IGNORECASE)
+            if re.search(r"\btoàn công ty\b", text, re.I)
             else SubjectScope.DEPARTMENT
-            if re.search(r"\b(?:phòng|ban|đơn vị)\s+", text, re.IGNORECASE)
+            if department is not None
             else SubjectScope.SELF
         )
-        leave_type = None
         leave_match = re.search(
             r"\b(phép năm|nghỉ ốm|nghỉ không lương|nghỉ thai sản)\b",
             text,
-            re.IGNORECASE,
+            re.I,
         )
-        if leave_match is not None:
-            leave_type = leave_match.group(1)
         return ResolvedEntities(
             employee_name=employee.group("name") if employee else None,
-            leave_type_text=leave_type,
+            department_name=(
+                department.group("name").strip() if department else None
+            ),
+            leave_type_text=leave_match.group(1) if leave_match else None,
             request_code=request.group("code") if request else None,
             scope=scope,
         )

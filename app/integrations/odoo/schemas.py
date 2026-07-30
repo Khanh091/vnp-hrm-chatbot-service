@@ -24,8 +24,10 @@ class OdooHealthData(BaseModel):
 
 class OdooUserContext(BaseModel):
     user_id: int
-    employee_id: int
+    employee_id: int | None = None
     company_id: int
+    company_ids: tuple[int, ...] = ()
+    group_codes: tuple[str, ...] = ()
     department_id: int | None
     timezone: str
     language: str

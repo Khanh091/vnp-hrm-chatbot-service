@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.retrieval.embeddings import EmbeddingProvider
 from app.retrieval.tool_indexer import retrieval_route
 from app.retrieval.vector_store import VectorStore
+from app.routing.intent_tool_mapping import tool_supports_intent
 from app.routing.schemas import (
     CandidateRetrievalRequest,
     Domain,
@@ -153,9 +154,22 @@ class CandidateRetriever:
                     classification.operation is not Operation.NONE
                     and tool.query_operation is not classification.operation
                 )
+                or (
+                    classification.intent is not None
+                    and not tool_supports_intent(
+                        tool.name,
+                        classification.intent,
+                    )
+                )
                 or all(
-                    scope.value != request.classification.scope.value
-                    for scope in tool.supported_scopes
+                    subject_type.value
+                    != (
+                        "employee"
+                        if request.classification.scope.value
+                        == "named_employee"
+                        else request.classification.scope.value
+                    )
+                    for subject_type in tool.supported_subject_types
                 )
             ):
                 continue

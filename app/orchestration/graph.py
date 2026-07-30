@@ -169,6 +169,7 @@ class ChatGraphWorkflow:
             "missing_arguments": [],
             "ambiguous_arguments": [],
             "workflow_data": {},
+            "entity_memory": {},
             "pending_action": {},
             "tool_result": None,
             "response_type": None,
