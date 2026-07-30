@@ -53,6 +53,17 @@ class NormalizedQuery(BaseModel):
 
     original_text: str = Field(min_length=1, max_length=4000)
     normalized_text: str = Field(min_length=1, max_length=4000)
+    folded_text: str = Field(default="", max_length=4000)
+
+
+class SemanticHint(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    concept: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    candidate_intents: tuple[Intent, ...]
+    confidence: float = Field(ge=0.0, le=1.0)
+    matched_text: str = Field(min_length=1, max_length=300)
+    is_exclusive: bool = False
 
 
 class RuleHints(BaseModel):
@@ -63,6 +74,13 @@ class RuleHints(BaseModel):
     operation_hint: Operation | None = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reason_code: str | None = Field(default=None, max_length=80)
+    self_reference: bool = False
+    named_employee_reference: bool = False
+    department_reference: bool = False
+    company_reference: bool = False
+    operation_signals: tuple[Operation, ...] = ()
+    domain_signals: tuple[Domain, ...] = ()
+    semantic_hints: tuple[SemanticHint, ...] = ()
 
 
 class QueryClassification(BaseModel):

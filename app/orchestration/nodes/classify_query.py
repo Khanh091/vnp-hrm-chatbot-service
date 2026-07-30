@@ -10,7 +10,6 @@ from app.orchestration.state import (
     WorkflowStatus,
 )
 from app.routing.query_classifier import QueryClassifierError
-from app.routing.schemas import NormalizedQuery
 
 
 async def classify_query_node(
@@ -20,9 +19,8 @@ async def classify_query_node(
     text = state.get("normalized_query") or ""
     try:
         result = await runtime.context.query_classifier.classify(
-            NormalizedQuery(
-                original_text=state.get("user_message") or text,
-                normalized_text=text,
+            runtime.context.query_normalizer.normalize(
+                state.get("user_message") or text
             )
         )
     except QueryClassifierError as error:
@@ -37,6 +35,9 @@ async def classify_query_node(
             ),
             "LLM_TIMEOUT": (
                 "Hệ thống AI phản hồi quá chậm. Vui lòng thử lại sau."
+            ),
+            "ROUTING_SCOPE_NOT_SUPPORTED": (
+                "Tôi chưa xác định chính xác đối tượng bạn muốn tra cứu."
             ),
         }.get(
             error.reason_code,

@@ -1,45 +1,242 @@
-import re
+from __future__ import annotations
 
-from app.routing.schemas import Domain, Operation, RouteType, RuleHints
+import re
+from dataclasses import dataclass
+
+from app.routing.query_normalizer import QueryNormalizer
+from app.routing.schemas import (
+    Domain,
+    NormalizedQuery,
+    Operation,
+    RouteType,
+    RuleHints,
+    SemanticHint,
+)
+from app.routing.taxonomy import Intent
+
+
+@dataclass(frozen=True)
+class SemanticRule:
+    concept: str
+    pattern: re.Pattern[str]
+    candidate_intents: tuple[Intent, ...]
+    confidence: float
+    is_exclusive: bool = False
+
+
+_SEMANTIC_RULES = (
+    SemanticRule(
+        concept="attendance_missing_punch",
+        pattern=re.compile(
+            r"\b(?:quen cham cong|thieu luot cham cong|"
+            r"thieu check[- ]?in|thieu check[- ]?out)\b"
+        ),
+        candidate_intents=(Intent.ATTENDANCE_MISSING_PUNCH_COUNT,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="attendance_actual_work_days",
+        pattern=re.compile(r"\b(?:ngay cong thuc te|so ngay lam viec)\b"),
+        candidate_intents=(Intent.ATTENDANCE_ACTUAL_WORK_DAYS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="leave_remaining_balance",
+        pattern=re.compile(
+            r"\b(?:so ngay phep con lai|ngay phep con lai|"
+            r"con (?:bao nhieu|may) ngay phep)\b"
+        ),
+        candidate_intents=(Intent.LEAVE_BALANCE,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_identity_document",
+        pattern=re.compile(
+            r"\b(?:cccd|cmnd|so can cuoc|"
+            r"(?:ngay|noi) cap (?:cccd|cmnd|can cuoc))\b"
+        ),
+        candidate_intents=(Intent.PROFILE_IDENTITY,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_bank_account",
+        pattern=re.compile(r"\b(?:so tai khoan ngan hang|so tai khoan)\b"),
+        candidate_intents=(Intent.PROFILE_BANK_ACCOUNTS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_party_union",
+        pattern=re.compile(
+            r"\b(?:dang vien|doan vien|the dang|ngay vao dang|"
+            r"ngay ket nap dang|ngay vao doan|sinh hoat dang|"
+            r"sinh hoat doan)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_PARTY_UNION,),
+        confidence=0.95,
+    ),
+    SemanticRule(
+        concept="profile_education",
+        pattern=re.compile(
+            r"\b(?:trinh do giao duc pho thong|hoc van|"
+            r"trinh do chuyen mon cao nhat|hinh thuc dao tao|"
+            r"chuyen nganh|co so dao tao|trinh do dao tao)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_EDUCATION,),
+        confidence=0.94,
+    ),
+    SemanticRule(
+        concept="profile_training_history",
+        pattern=re.compile(
+            r"\b(?:dao tao boi duong|lich su dao tao|"
+            r"lich su khoa hoc|cam ket dao tao)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_TRAINING_HISTORY,),
+        confidence=0.96,
+    ),
+    SemanticRule(
+        concept="profile_address",
+        pattern=re.compile(
+            r"\b(?:noi o hien nay|noi o hien tai|ho khau thuong tru|"
+            r"que quan|noi sinh|dia chi hien tai)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_ADDRESS,),
+        confidence=0.95,
+    ),
+    SemanticRule(
+        concept="profile_identity_attributes",
+        pattern=re.compile(
+            r"\b(?:dan toc|quoc tich|ton giao|"
+            r"tinh trang hon nhan|ten goi khac)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_IDENTITY,),
+        confidence=0.96,
+    ),
+    SemanticRule(
+        concept="profile_certificate_issue",
+        pattern=re.compile(
+            r"\b(?:ngay|noi) cap (?:chung chi|chung nhan|"
+            r"toeic|ielts|aws|pmp)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_CERTIFICATES,),
+        confidence=0.96,
+    ),
+    SemanticRule(
+        concept="directory_employee_workplace",
+        pattern=re.compile(
+            r"\b(?:o co quan nao|thuoc co quan nao|"
+            r"dia chi co quan|don vi cong tac|lam o dau)\b"
+        ),
+        candidate_intents=(Intent.DIRECTORY_EMPLOYEE_DEPARTMENT,),
+        confidence=0.95,
+    ),
+)
 
 _CREATE = re.compile(
-    r"(?:^|\b(?:hãy|giúp tôi|tôi muốn)\s+)"
-    r"(tạo|đăng ký|lập|gửi yêu cầu)\b",
-    re.IGNORECASE,
+    r"(?:^|\b(?:hay|giup toi|toi muon|toi)\s+)"
+    r"(?:tao|dang ky|lap|gui yeu cau)\b",
 )
-_UPDATE = re.compile(r"\b(sửa|cập nhật|điều chỉnh|đổi)\b", re.IGNORECASE)
-_CANCEL = re.compile(r"\b(hủy|huỷ|rút yêu cầu|xóa bỏ)\b", re.IGNORECASE)
+_UPDATE = re.compile(r"\b(?:sua|cap nhat|dieu chinh|doi)\b")
+_CANCEL = re.compile(r"\b(?:huy|rut yeu cau|xoa bo)\b")
 _LEAVE_CONTEXT = re.compile(
-    r"\b(đơn nghỉ|nghỉ phép|xin nghỉ|phép năm)\b",
-    re.IGNORECASE,
+    r"\b(?:don nghi|nghi phep|xin nghi|phep nam)\b"
+)
+_SELF = re.compile(r"\b(?:toi|cua toi)\b")
+_DEPARTMENT = re.compile(r"\b(?:phong|ban|don vi)\s+[a-z0-9]")
+_COMPANY = re.compile(r"\b(?:toan cong ty|cong ty)\b")
+_NAMED_EMPLOYEE = re.compile(
+    r"\b[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]+"
+    r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]+){1,5}\b"
+)
+_ASCII_NAMED_CONTEXT = re.compile(
+    r"\b[a-z][a-z'-]+(?:\s+[a-z][a-z'-]+){2,5}\s+"
+    r"(?:o|thuoc|lam|da|co|vao)\b"
 )
 
 
-def infer_rule_hints(normalized_text: str) -> RuleHints:
-    """Return strong pre-hints only; this never selects a final tool."""
+def _as_query(value: NormalizedQuery | str) -> NormalizedQuery:
+    if isinstance(value, NormalizedQuery):
+        if value.folded_text:
+            return value
+        return value.model_copy(
+            update={"folded_text": QueryNormalizer.fold(value.normalized_text)}
+        )
+    return QueryNormalizer().normalize(value)
+
+
+def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
+    """Produce pre-classification signals; never select a tool or technical ID."""
+
+    normalized = _as_query(query)
+    folded = normalized.folded_text
+    semantic_hints = tuple(
+        SemanticHint(
+            concept=rule.concept,
+            candidate_intents=rule.candidate_intents,
+            confidence=rule.confidence,
+            matched_text=match.group(0),
+            is_exclusive=rule.is_exclusive,
+        )
+        for rule in _SEMANTIC_RULES
+        if (match := rule.pattern.search(folded)) is not None
+    )
+    exclusive_intents = {
+        intent
+        for hint in semantic_hints
+        if hint.is_exclusive
+        for intent in hint.candidate_intents
+    }
 
     operation: Operation | None = None
     reason_code: str | None = None
-    if _CANCEL.search(normalized_text):
+    if _CANCEL.search(folded):
         operation = Operation.CANCEL
         reason_code = "EXPLICIT_CANCEL_ACTION"
-    elif _UPDATE.search(normalized_text):
+    elif _UPDATE.search(folded):
         operation = Operation.UPDATE
         reason_code = "EXPLICIT_UPDATE_ACTION"
-    elif _CREATE.search(normalized_text):
+    elif _CREATE.search(folded):
         operation = Operation.CREATE
         reason_code = "EXPLICIT_CREATE_ACTION"
+    elif len(exclusive_intents) > 1:
+        reason_code = "CONFLICTING_RULE_HINTS"
 
-    if operation is None:
-        return RuleHints()
-
-    domain = (
-        Domain.LEAVE if _LEAVE_CONTEXT.search(normalized_text) else None
+    domain_signals = tuple(
+        dict.fromkeys(
+            Domain(intent.value.split(".", 1)[0])
+            for hint in semantic_hints
+            for intent in hint.candidate_intents
+            if intent.value.split(".", 1)[0] in {item.value for item in Domain}
+        )
     )
+    if operation is not None and _LEAVE_CONTEXT.search(folded):
+        domain_signals = tuple(dict.fromkeys((*domain_signals, Domain.LEAVE)))
+
+    named_reference = bool(
+        _NAMED_EMPLOYEE.search(normalized.original_text)
+        or _ASCII_NAMED_CONTEXT.search(folded)
+    )
+    self_reference = bool(_SELF.search(folded)) and not named_reference
+    department_reference = bool(_DEPARTMENT.search(folded))
+    company_reference = bool(_COMPANY.search(folded))
+
     return RuleHints(
-        route_hint=RouteType.TRANSACTION,
-        domain_hint=domain,
+        route_hint=(
+            RouteType.TRANSACTION if operation is not None else None
+        ),
+        domain_hint=domain_signals[0] if len(domain_signals) == 1 else None,
         operation_hint=operation,
-        confidence=0.9 if domain is not None else 0.75,
+        confidence=0.9 if operation is not None else 0.0,
         reason_code=reason_code,
+        self_reference=self_reference,
+        named_employee_reference=named_reference,
+        department_reference=department_reference,
+        company_reference=company_reference,
+        operation_signals=(operation,) if operation is not None else (),
+        domain_signals=domain_signals,
+        semantic_hints=semantic_hints,
     )

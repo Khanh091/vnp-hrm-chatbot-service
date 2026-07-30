@@ -23,6 +23,10 @@ Quy tắc:
 - Tên/mã một nhân viên cụ thể là named_employee. Tên phòng/đơn vị dùng department.
 - Câu hỏi tổng hợp nhiều nhân viên/toàn công ty dùng company.
 - reason_code là mã UPPER_SNAKE_CASE ngắn, không giải thích dài.
+- Rule hints chỉ là tín hiệu hỗ trợ, không phải kết quả bắt buộc.
+- Chọn intent dựa trên toàn bộ câu, không chọn chỉ vì một từ đơn lẻ.
+- Ưu tiên object noun cụ thể: "ngày cấp CCCD" khác "ngày cấp chứng chỉ".
+- Không tạo intent ngoài enum cho dù rule hint không phù hợp.
 
 Phân biệt profile:
 - tên, ngày sinh, hồ sơ tổng quan => profile.summary
@@ -115,6 +119,7 @@ def build_query_classifier_prompt(
     payload = {
         "original_text": query.original_text,
         "normalized_text": query.normalized_text,
+        "folded_text": query.folded_text,
         "rule_hints": hints.model_dump(mode="json"),
     }
     return (

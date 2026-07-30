@@ -30,7 +30,11 @@ def _named_profile_tool(
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
-        domain=Domain.DIRECTORY,
+        domain=(
+            Domain.DIRECTORY
+            if capability.value.startswith("directory.")
+            else Domain.PROFILE
+        ),
         capability=capability.value,
         intent=capability,
         intents=intents,

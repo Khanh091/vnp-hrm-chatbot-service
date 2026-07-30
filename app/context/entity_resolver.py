@@ -103,6 +103,11 @@ class EntityResolver:
         r"\bcủa\s+(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*"
         r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]*){1,5})\s*[?.!]*$",
     )
+    _ASCII_PROFILE_EMPLOYEE = re.compile(
+        r"\b(?P<name>[A-Z][A-Za-z'-]*"
+        r"(?:\s+[A-Z][A-Za-z'-]*){1,5})"
+        r"\s+(?:o|thuoc|lam|vao|da|co|duoc)\b",
+    )
     _DEPARTMENT = re.compile(
         r"\b(?:phòng|ban|đơn vị)\s+"
         r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ]*(?:\s+[\wÀ-ỹĐđ/-]+){0,8})",
@@ -208,6 +213,7 @@ class EntityResolver:
         department = self._DEPARTMENT.search(normalized)
         profile_employee = self._PROFILE_EMPLOYEE.search(normalized)
         possessive_employee = self._POSSESSIVE_EMPLOYEE.search(normalized)
+        ascii_employee = self._ASCII_PROFILE_EMPLOYEE.search(normalized)
         recency: Literal["latest", "previous", "first", "last"] | None = (
             "latest"
             if re.search(r"\b(?:gần nhất|mới nhất)\b", normalized, re.I)
@@ -258,6 +264,8 @@ class EntityResolver:
             if profile_employee
             else possessive_employee.group("name")
             if possessive_employee
+            else ascii_employee.group("name")
+            if ascii_employee
             else None
         )
         subject_type = (
@@ -312,6 +320,7 @@ class EntityResolver:
             or self._BARE_EMPLOYEE.search(text)
             or self._PROFILE_EMPLOYEE.search(text)
             or self._POSSESSIVE_EMPLOYEE.search(text)
+            or self._ASCII_PROFILE_EMPLOYEE.search(text)
         )
         department = self._DEPARTMENT.search(text)
         scope = (

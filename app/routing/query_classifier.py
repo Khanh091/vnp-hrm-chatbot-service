@@ -1,5 +1,6 @@
 import logging
 
+from app.context.entity_resolver import EntityResolver
 from app.llm.client import LlmClientError, StructuredOutputClient
 from app.llm.exceptions import (
     LlmBadRequestError,
@@ -13,7 +14,11 @@ from app.llm.prompts import (
 )
 from app.llm.structured_output import StructuredOutputError
 from app.routing.input_guardrail import InputGuardrail
-from app.routing.intent_refiner import refine_read_intent
+from app.routing.intent_refiner import (
+    RoutingCanonicalizationError,
+    direct_classify_from_exclusive_hints,
+    repair_classification,
+)
 from app.routing.rules import infer_rule_hints
 from app.routing.schemas import NormalizedQuery, QueryClassification
 
@@ -39,7 +44,19 @@ class QueryClassifier:
         guarded = self._guardrail.inspect(query.normalized_text)
         if guarded is not None:
             return guarded
-        hints = infer_rule_hints(query.normalized_text)
+        hints = infer_rule_hints(query)
+        matched_concepts = [hint.concept for hint in hints.semantic_hints]
+        direct = direct_classify_from_exclusive_hints(query, hints)
+        if direct is not None:
+            logger.info(
+                "query_classified classifier_source=exclusive_rule "
+                "classification_repaired=false matched_concepts=%s "
+                "original_intent=%s final_intent=%s",
+                matched_concepts,
+                None,
+                direct.intent.value if direct.intent else None,
+            )
+            return direct
         try:
             result = await self._llm_client.complete_structured(
                 system_prompt=QUERY_CLASSIFIER_SYSTEM_PROMPT,
@@ -68,7 +85,35 @@ class QueryClassifier:
                 reason_code=reason_code,
             ) from error
 
-        result = refine_read_intent(query.normalized_text, result)
+        original_intent = result.intent
+        subject = EntityResolver().extract_subject(query.original_text)
+        try:
+            repaired = repair_classification(result, subject)
+        except RoutingCanonicalizationError as error:
+            logger.warning(
+                "query_classification_failed reason_code=%s "
+                "classifier_source=llm matched_concepts=%s",
+                error.reason_code,
+                matched_concepts,
+            )
+            raise QueryClassifierError(
+                "Classification violates intent taxonomy",
+                reason_code=error.reason_code,
+            ) from error
+        was_repaired = any(
+            getattr(repaired, field) != getattr(result, field)
+            for field in ("route", "domain", "operation", "scope", "intent")
+        )
+        result = repaired
+        logger.info(
+            "query_classified classifier_source=llm "
+            "classification_repaired=%s matched_concepts=%s "
+            "original_intent=%s final_intent=%s",
+            was_repaired,
+            matched_concepts,
+            original_intent.value if original_intent else None,
+            result.intent.value if result.intent else None,
+        )
         # A strong explicit write signal cannot safely be downgraded to a read.
         if (
             hints.operation_hint is not None

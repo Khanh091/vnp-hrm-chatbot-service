@@ -19,9 +19,10 @@ from app.routing.candidate_retriever import (
     CandidateRetrievalOutcome,
     CandidateRetriever,
 )
-from app.routing.intent_refiner import refine_read_intent
+from app.routing.intent_refiner import direct_classify_from_exclusive_hints
 from app.routing.query_classifier import QueryClassifier, QueryClassifierError
 from app.routing.query_normalizer import QueryNormalizer
+from app.routing.rules import infer_rule_hints
 from app.routing.schemas import (
     CandidateRetrievalRequest,
     Domain,
@@ -182,16 +183,26 @@ async def run() -> int:
 
 
 def _semantic_classification(query: str) -> QueryClassification:
-    seed = QueryClassification(
+    normalized = QueryNormalizer().normalize(query)
+    hints = infer_rule_hints(normalized)
+    direct = direct_classify_from_exclusive_hints(normalized, hints)
+    if direct is not None:
+        return direct
+    intents = {
+        intent
+        for hint in hints.semantic_hints
+        for intent in hint.candidate_intents
+    }
+    intent = next(iter(intents), Intent.ATTENDANCE_DAILY)
+    return QueryClassification(
         route=QueryRoute.DATA_QUERY,
         domain=Domain.GENERAL,
-        intent=Intent.ATTENDANCE_DAILY,
+        intent=intent,
         operation=Operation.READ,
         scope=SubjectScope.SELF,
         confidence=0.6,
         reason_code="EVALUATION_SEMANTIC_SEED",
     )
-    return refine_read_intent(query, seed)
 
 
 if __name__ == "__main__":

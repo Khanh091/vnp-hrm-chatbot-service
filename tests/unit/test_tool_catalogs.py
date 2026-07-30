@@ -85,10 +85,10 @@ def test_catalog_contains_only_real_odoo_controller_endpoints() -> None:
 
 
 def test_catalog_domain_counts_are_expected() -> None:
-    assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 23
+    assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 42
     assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
     assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
-    assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 24
+    assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 5
     assert sum(tool.domain is Domain.REPORTING for tool in ALL_TOOLS) == 1
 
 
