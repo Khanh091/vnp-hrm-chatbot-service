@@ -112,6 +112,7 @@ async def chat(
     return ChatResponse(
         conversation_id=result.conversation_id,
         type=result.type,
+        outcome=result.outcome,
         answer=result.answer,
         data=result.data,
         timings=result.timings,
@@ -137,6 +138,8 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
         "conversation_id": result.conversation_id,
         "answer": result.answer,
     }
+    if result.outcome is not None:
+        payload["outcome"] = result.outcome.value
     data = result.data if isinstance(result.data, dict) else {}
     if result.type.value == "clarification_required":
         payload["data"] = {
@@ -153,9 +156,6 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
         }
         return "confirmation", payload
     if result.type.value == "error":
-        payload["data"] = {
-            "error_code": data.get("error_code", "INTERNAL_ERROR")
-        }
         return "error", payload
     return "answer", payload
 
@@ -273,8 +273,8 @@ async def _stream_events(
             {
                 "type": "error",
                 "conversation_id": trusted_context.conversation_id,
-                "answer": "Không thể xử lý yêu cầu lúc này.",
-                "data": {"error_code": "INTERNAL_ERROR"},
+                "outcome": "invalid",
+                "answer": "Thông tin bạn cung cấp chưa hợp lệ.",
             },
         )
         yield _sse(

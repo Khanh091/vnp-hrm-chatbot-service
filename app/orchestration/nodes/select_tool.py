@@ -2,7 +2,11 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
-from app.common.error_messages import public_error_message
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    capability_label_for_intent,
+    public_outcome_message,
+)
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update, trusted_today
 from app.orchestration.state import (
@@ -27,10 +31,10 @@ async def select_tool_node(
         for item in state.get("candidates", [])
     ]
     if not candidates:
-        reason_code = (
-            state.get("candidate_resolution_reason")
-            or "NO_RETRIEVAL_CANDIDATES"
+        classification = QueryClassification.model_validate(
+            state["classification"]
         )
+        outcome = CapabilityOutcome.UNSUPPORTED
         return {
             **stage_update(
                 state,
@@ -40,8 +44,14 @@ async def select_tool_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.UNSUPPORTED,
-            "response_text": public_error_message(reason_code),
-            "response_data": {"reason_code": reason_code},
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(
+                outcome,
+                capability_label=capability_label_for_intent(
+                    classification.intent
+                ),
+            ),
+            "response_data": None,
             "pending_tool_name": None,
         }
     contexts = runtime.context.tool_selector.build_candidate_contexts(
@@ -62,6 +72,7 @@ async def select_tool_node(
             )
         )
     except ToolSelectorError:
+        outcome = CapabilityOutcome.INVALID
         return {
             **stage_update(
                 state,
@@ -71,8 +82,9 @@ async def select_tool_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.ERROR,
-            "response_text": "Không thể chọn tool an toàn cho yêu cầu này.",
-            "response_data": {"reason_code": "TOOL_SELECTION_FAILED"},
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(outcome),
+            "response_data": None,
             "pending_tool_name": None,
         }
     selected = selection.selected_tool
@@ -93,12 +105,22 @@ async def select_tool_node(
         }
     )
     if selected is None:
+        outcome = CapabilityOutcome.UNSUPPORTED
+        classification = QueryClassification.model_validate(
+            state["classification"]
+        )
         update.update(
             {
                 "workflow_status": WorkflowStatus.FAILED,
                 "response_type": ChatResponseType.UNSUPPORTED,
-                "response_text": "Không tìm thấy tool phù hợp với yêu cầu.",
-                "response_data": {"reason_code": selection.reason_code},
+                "capability_outcome": outcome,
+                "response_text": public_outcome_message(
+                    outcome,
+                    capability_label=capability_label_for_intent(
+                        classification.intent
+                    ),
+                ),
+                "response_data": None,
             }
         )
     return update

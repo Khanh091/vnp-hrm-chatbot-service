@@ -3,7 +3,12 @@ from uuid import uuid4
 
 from langgraph.runtime import Runtime
 
-from app.common.error_messages import category_for_error, public_error_message
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    outcome_for_error,
+    outcome_for_success,
+    public_outcome_message,
+)
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import (
     emit_graph_event,
@@ -34,6 +39,7 @@ async def format_response_node(
         )
     result_data = state.get("tool_result")
     if not result_data:
+        outcome = CapabilityOutcome.INVALID
         return {
             **stage_update(
                 state,
@@ -42,21 +48,37 @@ async def format_response_node(
                 started=started,
             ),
             "response_type": ChatResponseType.ERROR,
-            "response_text": "Không thể hoàn tất yêu cầu.",
-            "response_data": {"reason_code": "EMPTY_TOOL_RESULT"},
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(outcome),
+            "response_data": None,
         }
     result = ToolExecutionResult.model_validate(result_data)
     if not result.success:
         response_type = ChatResponseType.ERROR
-        category = category_for_error(result.error_code)
-        text = public_error_message(result.error_code, category)
-        data = {
-            "tool_name": result.tool_name,
-            "error_code": result.error_code,
-            "category": category.value,
-        }
+        outcome = outcome_for_error(result.error_code)
+        text = public_outcome_message(outcome)
+        data = None
     else:
         response_type = ChatResponseType.ANSWER
+        outcome = outcome_for_success(result.data)
+        if outcome is CapabilityOutcome.EMPTY:
+            text = public_outcome_message(outcome)
+            data = {"result": result.data}
+            update = stage_update(
+                state,
+                event="response_ready",
+                timing_name="response_formatting_ms",
+                started=started,
+            )
+            update.update(
+                {
+                    "response_type": response_type,
+                    "capability_outcome": outcome,
+                    "response_text": text,
+                    "response_data": data,
+                }
+            )
+            return update
         write_text = _WRITE_SUCCESS.get(result.tool_name)
         if write_text is not None:
             text = write_text
@@ -108,7 +130,7 @@ async def format_response_node(
                 )
             except (KeyError, TypeError, ValueError):
                 text = fallback_text
-        data = {"tool_name": result.tool_name, "result": result.data}
+        data = {"result": result.data}
     update = stage_update(
         state,
         event="response_ready",
@@ -118,6 +140,7 @@ async def format_response_node(
     update.update(
         {
             "response_type": response_type,
+            "capability_outcome": outcome,
             "response_text": text,
             "response_data": data,
         }

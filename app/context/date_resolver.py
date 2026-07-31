@@ -102,9 +102,12 @@ class DateResolver:
             ("hôm nay", 0, "today"),
             ("hôm qua", -1, "yesterday"),
             ("ngày mai", 1, "tomorrow"),
+            ("ngày kia", 2, "day_after_tomorrow"),
+            ("mốt", 2, "day_after_tomorrow"),
+            ("mai", 1, "tomorrow"),
         )
         for expression, offset, kind in values:
-            if expression in text:
+            if re.search(rf"(?<!\w){re.escape(expression)}(?!\w)", text):
                 value = current + timedelta(days=offset)
                 return self._result(value, value, expression, kind)
         return None

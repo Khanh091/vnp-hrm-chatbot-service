@@ -2,6 +2,7 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.capability_outcomes import CapabilityOutcome
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import (
@@ -24,6 +25,7 @@ async def classify_query_node(
             )
         )
     except QueryClassifierError as error:
+        outcome = CapabilityOutcome.INVALID
         answer = {
             "LLM_RATE_LIMITED": (
                 "Hệ thống AI đang tạm thời đạt giới hạn xử lý. "
@@ -53,11 +55,9 @@ async def classify_query_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.ERROR,
+            "capability_outcome": outcome,
             "response_text": answer,
-            "response_data": {
-                "stage": "classification",
-                "reason_code": error.reason_code,
-            },
+            "response_data": None,
             "pending_tool_name": None,
             "missing_arguments": [],
             "ambiguous_arguments": [],

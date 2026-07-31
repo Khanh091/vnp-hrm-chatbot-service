@@ -7,6 +7,10 @@ from typing import Any
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 
+from app.common.capability_outcomes import (
+    outcome_for_error,
+    public_outcome_message,
+)
 from app.context.conversation_service import ConversationStateError
 from app.context.pending_action_service import PendingActionError
 from app.orchestration.context import GraphContext
@@ -173,6 +177,7 @@ class ChatGraphWorkflow:
             "pending_action": {},
             "tool_result": None,
             "response_type": None,
+            "capability_outcome": None,
             "response_text": None,
             "response_data": None,
             "workflow_issues": [],
@@ -212,6 +217,7 @@ class ChatGraphWorkflow:
         return ChatPipelineResult(
             conversation_id=trusted_context.conversation_id,
             type=output.get("response_type") or ChatResponseType.ERROR,
+            outcome=output.get("capability_outcome"),
             answer=output.get("response_text"),
             data=output.get("response_data"),
             timings=ChatStageTimings.model_validate(
@@ -292,19 +298,13 @@ class ChatGraphWorkflow:
         code: str,
         started: float,
     ) -> ChatPipelineResult:
-        public_code = (
-            "RESOURCE_ACCESS_DENIED"
-            if code in {
-                "CONVERSATION_ACCESS_DENIED",
-                "ACTION_ACCESS_DENIED",
-            }
-            else code
-        )
+        outcome = outcome_for_error(code)
         return ChatPipelineResult(
             conversation_id=trusted_context.conversation_id,
             type=ChatResponseType.ERROR,
-            answer="Không thể tiếp tục workflow.",
-            data={"error_code": public_code},
+            outcome=outcome,
+            answer=public_outcome_message(outcome),
+            data=None,
             timings=ChatStageTimings(
                 total_ms=(perf_counter() - started) * 1000
             ),

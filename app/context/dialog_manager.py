@@ -27,7 +27,7 @@ _QUERY_OR_COMMAND = re.compile(
 _DATE_ANSWER = re.compile(
     r"^(?:"
     r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
-    r"hôm nay|hôm qua|ngày mai|"
+    r"hôm nay|hôm qua|ngày mai|mai|mốt|ngày kia|"
     r"(?:đầu|cuối) (?:tuần|tháng)|"
     r"(?:tuần|tháng|năm) (?:này|trước|sau)|"
     r"quý\s*(?:i{1,3}|iv|[1-4])(?:\s+\d{4})?|"

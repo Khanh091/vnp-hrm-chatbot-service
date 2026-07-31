@@ -2,6 +2,11 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    outcome_for_error,
+    public_outcome_message,
+)
 from app.common.error_messages import public_error_message
 from app.context.conversation import ConversationStatus
 from app.orchestration.context import GraphContext
@@ -106,6 +111,7 @@ async def validate_selection_node(
     )
     slot_issues = workflow_data.get("slot_issues", [])
     if slot_issues:
+        outcome = CapabilityOutcome.INVALID
         await runtime.context.conversation_service.clear_workflow(
             state["conversation_id"],
             int(state["trusted_context"]["odoo_user_id"]),
@@ -120,11 +126,9 @@ async def validate_selection_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.ERROR,
-            "response_text": public_error_message("INVALID_ARGUMENT"),
-            "response_data": {
-                "reason_code": "INVALID_ARGUMENT",
-                "issues": slot_issues,
-            },
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(outcome),
+            "response_data": None,
             "pending_tool_name": None,
             "collected_arguments": {},
             "missing_arguments": [],
@@ -206,13 +210,9 @@ async def validate_selection_node(
         update.update(
             {
                 "response_type": ChatResponseType.ERROR,
+                "capability_outcome": outcome_for_error(public_code),
                 "response_text": public_error_message(public_code, category),
-                "response_data": {
-                    "reason_code": public_code,
-                    "issues": [
-                        issue.model_dump(mode="json") for issue in result.errors
-                    ],
-                },
+                "response_data": None,
             }
         )
     return update
@@ -224,6 +224,7 @@ def _terminal_error(
     reason_code: str,
     message: str,
 ) -> dict[str, object]:
+    outcome = outcome_for_error(reason_code)
     return {
         **stage_update(
             state,
@@ -233,6 +234,11 @@ def _terminal_error(
         ),
         "workflow_status": WorkflowStatus.FAILED,
         "response_type": ChatResponseType.ERROR,
-        "response_text": message,
-        "response_data": {"reason_code": reason_code},
+        "capability_outcome": outcome,
+        "response_text": (
+            public_outcome_message(outcome)
+            if outcome is not CapabilityOutcome.INVALID
+            else message
+        ),
+        "response_data": None,
     }

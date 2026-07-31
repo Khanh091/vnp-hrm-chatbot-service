@@ -4,6 +4,10 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    public_outcome_message,
+)
 from app.context.date_resolver import AmbiguousDateExpression
 from app.context.entities import SubjectMention
 from app.context.entity_resolver import EntityOption
@@ -35,6 +39,7 @@ async def merge_clarification_node(
     started = perf_counter()
     tool_name = state.get("pending_tool_name")
     if not tool_name:
+        outcome = CapabilityOutcome.INVALID
         await runtime.context.conversation_service.clear_workflow(
             state["conversation_id"],
             int(state["trusted_context"]["odoo_user_id"]),
@@ -50,13 +55,13 @@ async def merge_clarification_node(
             "pending_tool_name": None,
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.ERROR,
-            "response_text": "Ngữ cảnh làm rõ không còn hợp lệ.",
-            "response_data": {
-                "reason_code": "CLARIFICATION_CONTEXT_MISSING"
-            },
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(outcome),
+            "response_data": None,
         }
     tool = runtime.context.tool_registry.get(tool_name)
     if not tool.enabled:
+        outcome = CapabilityOutcome.UNSUPPORTED
         await runtime.context.conversation_service.clear_workflow(
             state["conversation_id"],
             int(state["trusted_context"]["odoo_user_id"]),
@@ -71,9 +76,10 @@ async def merge_clarification_node(
             "workflow_issues": [{"code": "PENDING_TOOL_DISABLED"}],
             "pending_tool_name": None,
             "workflow_status": WorkflowStatus.FAILED,
-            "response_type": ChatResponseType.ERROR,
-            "response_text": "Nghiệp vụ đang chờ hiện không còn khả dụng.",
-            "response_data": {"reason_code": "PENDING_TOOL_DISABLED"},
+            "response_type": ChatResponseType.UNSUPPORTED,
+            "capability_outcome": outcome,
+            "response_text": public_outcome_message(outcome),
+            "response_data": None,
         }
     workflow = runtime.context.workflow_registry.get(tool_name)
     missing = list(state.get("missing_arguments", []))

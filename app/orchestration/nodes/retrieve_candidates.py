@@ -2,6 +2,11 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    capability_label_for_intent,
+    public_outcome_message,
+)
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState, ChatResponseType, WorkflowStatus
@@ -30,6 +35,10 @@ async def retrieve_candidates_node(
             )
         )
     except RoutingInvariantError as error:
+        classification = QueryClassification.model_validate(
+            state["classification"]
+        )
+        capability_outcome = CapabilityOutcome.UNSUPPORTED
         return {
             **stage_update(
                 state,
@@ -39,9 +48,15 @@ async def retrieve_candidates_node(
                 data={"reason_code": error.reason_code},
             ),
             "workflow_status": WorkflowStatus.FAILED,
-            "response_type": ChatResponseType.ERROR,
-            "response_text": "Không thể định tuyến yêu cầu một cách an toàn.",
-            "response_data": {"reason_code": error.reason_code},
+            "response_type": ChatResponseType.UNSUPPORTED,
+            "capability_outcome": capability_outcome,
+            "response_text": public_outcome_message(
+                capability_outcome,
+                capability_label=capability_label_for_intent(
+                    classification.intent
+                ),
+            ),
+            "response_data": None,
             "workflow_issues": [{"code": error.reason_code}],
         }
     update = stage_update(

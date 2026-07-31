@@ -10,6 +10,7 @@ from pydantic import (
 )
 
 from app.api.schemas.common import ResponseMeta
+from app.common.capability_outcomes import CapabilityOutcome
 from app.orchestration.state import ChatResponseType, ChatStageTimings
 
 
@@ -96,6 +97,7 @@ class ChatResponse(BaseModel):
 
     conversation_id: str
     type: ChatResponseType
+    outcome: CapabilityOutcome | None = None
     answer: str | None
     data: dict[str, Any] | None
     timings: ChatStageTimings

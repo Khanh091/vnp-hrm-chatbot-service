@@ -3,18 +3,19 @@ from app.routing.schemas import ValidationIssueCategory
 _MESSAGES = {
     "ROUTING_AMBIGUOUS": "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu.",
     "LOW_CONFIDENCE": "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu.",
-    "NO_MATCHING_TOOL": "Chức năng này hiện chưa được hỗ trợ.",
+    "NO_MATCHING_TOOL": "Hiện chatbot chưa hỗ trợ chức năng này.",
     "INTENT_NOT_RECOGNIZED": (
         "Tôi chưa xác định được chính xác yêu cầu của bạn."
     ),
-    "NO_CAPABILITY_FOR_INTENT": "Chức năng này hiện chưa được hỗ trợ.",
-    "NO_TOOL_FOR_CAPABILITY": "Chức năng này hiện chưa được hỗ trợ.",
+    "NO_CAPABILITY_FOR_INTENT": "Hiện chatbot chưa hỗ trợ chức năng này.",
+    "NO_TOOL_FOR_CAPABILITY": "Hiện chatbot chưa hỗ trợ chức năng này.",
+    "NO_REGISTERED_TOOL": "Hiện chatbot chưa hỗ trợ chức năng này.",
+    "NO_CANDIDATES": "Hiện chatbot chưa hỗ trợ chức năng này.",
     "NO_SUBJECT_COMPATIBLE_TOOL": (
         "Chức năng này chưa hỗ trợ đối tượng bạn muốn tra cứu."
     ),
-    "NO_RETRIEVAL_CANDIDATES": (
-        "Tôi chưa tìm thấy chức năng phù hợp với yêu cầu này."
-    ),
+    "NO_RETRIEVAL_CANDIDATES": "Hiện chatbot chưa hỗ trợ chức năng này.",
+    "SUPPORTED_EMPTY": "Hệ thống chưa lưu thông tin này.",
     "INVALID_ARGUMENT": "Thông tin bạn cung cấp chưa hợp lệ.",
     "INVALID_ARGUMENTS": "Thông tin bạn cung cấp chưa hợp lệ.",
     "MISSING_ARGUMENT": "Cần bổ sung thêm thông tin.",
@@ -34,7 +35,8 @@ _MESSAGES = {
     "TRUSTED_FIELD_INJECTION": "Yêu cầu bị từ chối vì lý do an toàn.",
     "LLM_RATE_LIMITED": "Hệ thống AI đang tạm thời đạt giới hạn xử lý.",
     "LLM_TIMEOUT": "Hệ thống AI phản hồi chậm. Vui lòng thử lại.",
-    "RECORD_NOT_FOUND": "Không tìm thấy dữ liệu được yêu cầu.",
+    "RECORD_NOT_FOUND": "Không tìm thấy đối tượng phù hợp.",
+    "ENTITY_NOT_FOUND": "Không tìm thấy đối tượng phù hợp.",
     "ODOO_TIMEOUT": "Hệ thống HRM phản hồi chậm. Vui lòng thử lại.",
     "ODOO_CONNECTION_ERROR": "Không thể kết nối đến hệ thống HRM lúc này.",
     "INVALID_LEAVE_DATE_RANGE": (

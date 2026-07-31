@@ -5,6 +5,13 @@ from time import perf_counter
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.common.capability_outcomes import (
+    CapabilityOutcome,
+    capability_label_for_intent,
+    outcome_for_error,
+    outcome_for_success,
+    public_outcome_message,
+)
 from app.context.conversation import (
     ClarificationRequiredData,
     ConfirmationRequiredData,
@@ -80,13 +87,20 @@ class ChatPipeline:
             }
             or not routing.candidates
         ):
+            outcome = CapabilityOutcome.UNSUPPORTED
             return self._result(
                 trusted_context.conversation_id,
                 ChatResponseType.UNSUPPORTED,
-                "Yêu cầu này chưa có tool nghiệp vụ phù hợp.",
-                {"classification": routing.classification.model_dump(mode="json")},
+                public_outcome_message(
+                    outcome,
+                    capability_label=capability_label_for_intent(
+                        routing.classification.intent
+                    ),
+                ),
+                None,
                 timings,
                 total_started,
+                outcome,
             )
 
         contexts = self._selector.build_candidate_contexts(routing.candidates)
@@ -108,23 +122,32 @@ class ChatPipeline:
             selection = await self._selector.select(selector_request)
         except ToolSelectorError:
             timings["tool_selection_ms"] = self._elapsed(started)
+            outcome = CapabilityOutcome.INVALID
             return self._result(
                 trusted_context.conversation_id,
                 ChatResponseType.ERROR,
-                "Không thể chọn tool an toàn cho yêu cầu này.",
-                {"reason_code": "TOOL_SELECTION_FAILED"},
+                public_outcome_message(outcome),
+                None,
                 timings,
                 total_started,
+                outcome,
             )
         timings["tool_selection_ms"] = self._elapsed(started)
         if selection.selected_tool is None:
+            outcome = CapabilityOutcome.UNSUPPORTED
             return self._result(
                 trusted_context.conversation_id,
                 ChatResponseType.UNSUPPORTED,
-                "Không tìm thấy tool phù hợp với yêu cầu.",
-                {"reason_code": selection.reason_code},
+                public_outcome_message(
+                    outcome,
+                    capability_label=capability_label_for_intent(
+                        routing.classification.intent
+                    ),
+                ),
+                None,
                 timings,
                 total_started,
+                outcome,
             )
 
         tool = self._registry.get(selection.selected_tool)
@@ -202,14 +225,14 @@ class ChatPipeline:
                     if low_confidence
                     else "Thông tin đầu vào chưa hợp lệ."
                 ),
-                {
-                    "issues": [
-                        issue.model_dump(mode="json")
-                        for issue in validation.errors
-                    ]
-                },
+                None,
                 timings,
                 total_started,
+                (
+                    None
+                    if low_confidence
+                    else CapabilityOutcome.INVALID
+                ),
             )
 
         if validation.requires_confirmation:
@@ -247,20 +270,24 @@ class ChatPipeline:
         )
         timings["execution_ms"] = self._elapsed(started)
         if not execution.success:
+            outcome = outcome_for_error(execution.error_code)
             return self._result(
                 trusted_context.conversation_id,
                 ChatResponseType.ERROR,
-                "Không thể truy xuất dữ liệu HRM lúc này.",
-                {
-                    "tool_name": tool.name,
-                    "error_code": execution.error_code,
-                },
+                public_outcome_message(outcome),
+                None,
                 timings,
                 total_started,
+                outcome,
             )
 
         started = perf_counter()
-        answer = self._formatter.format(tool.name, execution)
+        outcome = outcome_for_success(execution.data)
+        answer = (
+            public_outcome_message(outcome)
+            if outcome is CapabilityOutcome.EMPTY
+            else self._formatter.format(tool.name, execution)
+        )
         timings["response_formatting_ms"] = self._elapsed(started)
         await self._conversation_store.clear_context(
             trusted_context.conversation_id
@@ -269,9 +296,10 @@ class ChatPipeline:
             trusted_context.conversation_id,
             ChatResponseType.ANSWER,
             answer,
-            {"tool_name": tool.name, "result": execution.data},
+            {"result": execution.data},
             timings,
             total_started,
+            outcome,
         )
 
     async def preview(self, message: str) -> dict[str, Any]:
@@ -363,11 +391,13 @@ class ChatPipeline:
         data: dict[str, Any] | None,
         timings: dict[str, float],
         total_started: float,
+        outcome: CapabilityOutcome | None = None,
     ) -> ChatPipelineResult:
         timings["total_ms"] = ChatPipeline._elapsed(total_started)
         return ChatPipelineResult(
             conversation_id=conversation_id,
             type=response_type,
+            outcome=outcome,
             answer=answer,
             data=data,
             timings=ChatStageTimings.model_validate(timings),

@@ -4,6 +4,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
+from app.common.capability_outcomes import CapabilityOutcome
+
 
 class ChatResponseType(str, Enum):
     ANSWER = "answer"
@@ -76,6 +78,7 @@ class ChatGraphState(TypedDict, total=False):
     pending_action: dict[str, Any]
     tool_result: dict[str, Any] | None
     response_type: ChatResponseType | None
+    capability_outcome: CapabilityOutcome | None
     response_text: str | None
     response_data: dict[str, Any] | None
     workflow_issues: list[dict[str, Any]]
@@ -109,6 +112,7 @@ class ChatPipelineResult(BaseModel):
 
     conversation_id: str
     type: ChatResponseType
+    outcome: CapabilityOutcome | None = None
     answer: str | None = None
     data: dict[str, Any] | None = None
     timings: ChatStageTimings
