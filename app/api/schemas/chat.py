@@ -17,17 +17,33 @@ from app.orchestration.state import ChatResponseType, ChatStageTimings
 class ChatActionType(str, Enum):
     CONFIRM = "confirm"
     CANCEL = "cancel"
+    CANCEL_WORKFLOW = "cancel_workflow"
 
 
 class ChatAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: ChatActionType
-    action_id: str = Field(
+    action_id: str | None = Field(
+        default=None,
         min_length=40,
         max_length=64,
         pattern=r"^act-[0-9a-fA-F-]{36}$",
     )
+
+    @model_validator(mode="after")
+    def validate_action_id(self) -> "ChatAction":
+        if (
+            self.type in {ChatActionType.CONFIRM, ChatActionType.CANCEL}
+            and self.action_id is None
+        ):
+            raise ValueError("action_id is required for pending actions")
+        if (
+            self.type is ChatActionType.CANCEL_WORKFLOW
+            and self.action_id is not None
+        ):
+            raise ValueError("action_id is not used for workflow cancellation")
+        return self
 
 
 class ClarificationAnswer(BaseModel):

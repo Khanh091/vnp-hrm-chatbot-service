@@ -20,6 +20,7 @@ class TurnType(str, Enum):
     NEW_QUERY_OVERRIDE = "new_query_override"
     CLARIFICATION_ANSWER = "clarification_answer"
     CLARIFICATION_RETRY = "clarification_retry"
+    WORKFLOW_CANCEL = "workflow_cancel"
     CONFIRMATION_ACCEPT = "confirmation_accept"
     CONFIRMATION_CANCEL = "confirmation_cancel"
 

@@ -26,6 +26,17 @@ class SemanticRule:
 
 _SEMANTIC_RULES = (
     SemanticRule(
+        concept="attendance_full_history",
+        pattern=re.compile(
+            r"\b(?:(?:toan bo|tat ca|day du) "
+            r"(?:thong tin|du lieu|ban ghi) cham cong|"
+            r"toan bo cham cong)\b"
+        ),
+        candidate_intents=(Intent.ATTENDANCE_HISTORY,),
+        confidence=0.98,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="attendance_missing_punch",
         pattern=re.compile(
             r"\b(?:quen cham cong|thieu luot cham cong|"

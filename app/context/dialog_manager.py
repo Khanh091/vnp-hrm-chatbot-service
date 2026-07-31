@@ -37,6 +37,11 @@ _DATE_ANSWER = re.compile(
     re.I,
 )
 _REQUEST_CODE = re.compile(r"^(?:LEAVE[-\s]?)?\d{1,12}$", re.I)
+_WORKFLOW_CANCEL = re.compile(
+    r"^(?:hủy|huỷ|thôi|dừng|không tạo nữa|"
+    r"tôi không muốn tạo đơn nghỉ(?: phép)?(?: nữa)?)$",
+    re.I,
+)
 _NAMED_EMPLOYEE_QUERY = re.compile(
     r"\b[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]+"
     r"(?:\s+[A-ZÀ-ỸĐ][\wÀ-ỹĐđ'-]+){1,5}"
@@ -85,6 +90,8 @@ class DialogTurnManager:
                 else TurnType.CLARIFICATION_RETRY
             )
         text = (message or "").strip()
+        if _WORKFLOW_CANCEL.fullmatch(text):
+            return TurnType.WORKFLOW_CANCEL
         if self._matches_expected_slot(text, expected_field):
             return TurnType.CLARIFICATION_ANSWER
         if _NAMED_EMPLOYEE_QUERY.search(text):

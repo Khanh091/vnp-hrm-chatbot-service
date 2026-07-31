@@ -14,12 +14,14 @@ def route_after_turn_detection(
     "merge_clarification",
     "load_pending_action_confirm",
     "load_pending_action_cancel",
+    "format_response",
 ]:
     routes = {
         TurnType.NEW_QUERY: "normalize_query",
         TurnType.NEW_QUERY_OVERRIDE: "normalize_query",
         TurnType.CLARIFICATION_ANSWER: "merge_clarification",
         TurnType.CLARIFICATION_RETRY: "merge_clarification",
+        TurnType.WORKFLOW_CANCEL: "format_response",
         TurnType.CONFIRMATION_ACCEPT: "load_pending_action_confirm",
         TurnType.CONFIRMATION_CANCEL: "load_pending_action_cancel",
     }

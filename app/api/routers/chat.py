@@ -144,7 +144,7 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
     if result.type.value == "clarification_required":
         payload["data"] = {
             key: data[key]
-            for key in ("field", "options")
+            for key in ("field", "options", "actions")
             if key in data
         }
         return "clarification", payload

@@ -94,6 +94,13 @@ async def ask_clarification_node(
     options = workflow_data.get("clarification_options")
     if options:
         data["options"] = options
+    if tool_name == "leave_create_request":
+        data["actions"] = [
+            {
+                "type": "cancel_workflow",
+                "label": "Tôi không muốn tạo đơn nghỉ",
+            }
+        ]
     update = stage_update(
         state,
         event="clarification_required",
