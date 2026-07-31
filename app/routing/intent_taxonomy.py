@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from app.context.entities import SubjectMention
+from app.routing.capabilities import capability_names_for_intent
 from app.routing.schemas import Domain, QueryClassification
 from app.routing.taxonomy import (
     Intent,
@@ -20,6 +21,7 @@ class IntentDefinition(BaseModel):
     route: QueryRoute
     operation: Operation
     supported_scopes: frozenset[SubjectScope]
+    capability_names: frozenset[str]
 
 
 class RoutingCanonicalizationError(RuntimeError):
@@ -45,6 +47,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.DATA_QUERY,
             operation=Operation.READ,
             supported_scopes=_PROFILE_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "attendance":
         return IntentDefinition(
@@ -52,6 +55,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.DATA_QUERY,
             operation=Operation.READ,
             supported_scopes=_PROFILE_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "leave":
         operation = {
@@ -68,6 +72,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             ),
             operation=operation,
             supported_scopes=_SELF_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "directory":
         scopes = {
@@ -83,6 +88,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.DATA_QUERY,
             operation=Operation.READ,
             supported_scopes=scopes,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "report":
         return IntentDefinition(
@@ -92,6 +98,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             supported_scopes=frozenset(
                 {SubjectScope.DEPARTMENT, SubjectScope.COMPANY}
             ),
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "knowledge":
         return IntentDefinition(
@@ -99,6 +106,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.KNOWLEDGE,
             operation=Operation.READ,
             supported_scopes=_GENERAL_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "general":
         return IntentDefinition(
@@ -106,6 +114,7 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.GENERAL,
             operation=Operation.NONE,
             supported_scopes=_GENERAL_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     if prefix == "unsafe":
         return IntentDefinition(
@@ -113,12 +122,14 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.UNSAFE,
             operation=Operation.NONE,
             supported_scopes=_GENERAL_SCOPES,
+            capability_names=capability_names_for_intent(intent),
         )
     return IntentDefinition(
         domain=Domain.GENERAL,
         route=QueryRoute.UNSUPPORTED,
         operation=Operation.NONE,
         supported_scopes=_GENERAL_SCOPES,
+        capability_names=capability_names_for_intent(intent),
     )
 
 

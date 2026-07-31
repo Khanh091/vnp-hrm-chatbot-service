@@ -4,6 +4,17 @@ _MESSAGES = {
     "ROUTING_AMBIGUOUS": "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu.",
     "LOW_CONFIDENCE": "Tôi chưa xác định chính xác thông tin bạn muốn tra cứu.",
     "NO_MATCHING_TOOL": "Chức năng này hiện chưa được hỗ trợ.",
+    "INTENT_NOT_RECOGNIZED": (
+        "Tôi chưa xác định được chính xác yêu cầu của bạn."
+    ),
+    "NO_CAPABILITY_FOR_INTENT": "Chức năng này hiện chưa được hỗ trợ.",
+    "NO_TOOL_FOR_CAPABILITY": "Chức năng này hiện chưa được hỗ trợ.",
+    "NO_SUBJECT_COMPATIBLE_TOOL": (
+        "Chức năng này chưa hỗ trợ đối tượng bạn muốn tra cứu."
+    ),
+    "NO_RETRIEVAL_CANDIDATES": (
+        "Tôi chưa tìm thấy chức năng phù hợp với yêu cầu này."
+    ),
     "INVALID_ARGUMENT": "Thông tin bạn cung cấp chưa hợp lệ.",
     "INVALID_ARGUMENTS": "Thông tin bạn cung cấp chưa hợp lệ.",
     "MISSING_ARGUMENT": "Cần bổ sung thêm thông tin.",
@@ -89,6 +100,11 @@ def category_for_error(reason_code: str | None) -> ValidationIssueCategory:
         "ROUTING_AMBIGUOUS",
         "LOW_CONFIDENCE",
         "NO_MATCHING_TOOL",
+        "INTENT_NOT_RECOGNIZED",
+        "NO_CAPABILITY_FOR_INTENT",
+        "NO_TOOL_FOR_CAPABILITY",
+        "NO_SUBJECT_COMPATIBLE_TOOL",
+        "NO_RETRIEVAL_CANDIDATES",
     }:
         return ValidationIssueCategory.ROUTING
     return ValidationIssueCategory.BUSINESS

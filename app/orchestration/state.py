@@ -61,6 +61,7 @@ class ChatGraphState(TypedDict, total=False):
     conversation_version: int
     classification: dict[str, Any]
     candidates: list[dict[str, Any]]
+    candidate_resolution_reason: str | None
     candidate_contexts: list[dict[str, Any]]
     selection: dict[str, Any]
     validation: dict[str, Any]

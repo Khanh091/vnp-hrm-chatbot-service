@@ -75,7 +75,7 @@ class ToolSelector:
                     selected_tool=tool.name,
                     confidence=request.classification.confidence,
                     scope=request.classification.scope,
-                    reason_code="DIRECT_INTENT_MAPPING",
+                    reason_code="DIRECT_CAPABILITY_MAPPING",
                 )
         try:
             selection = await self._llm_client.complete_structured(
@@ -132,7 +132,7 @@ class ToolSelector:
                 ToolCandidateContext(
                     tool_name=tool.name,
                     domain=candidate.domain,
-                    capability=tool.capability,
+                    capability=tool.capability_name,
                     supported_intents=sorted(
                         tool.intents,
                         key=lambda intent: intent.value,

@@ -45,6 +45,14 @@ ATTENDANCE_TOOLS = (
     _attendance_tool(
         name="attendance_get_daily",
         capability="attendance.daily",
+        intents=frozenset(
+            {
+                Intent.ATTENDANCE_DAILY,
+                Intent.ATTENDANCE_CHECK_IN,
+                Intent.ATTENDANCE_CHECK_OUT,
+                Intent.ATTENDANCE_WORKED_HOURS,
+            }
+        ),
         description="Lấy chi tiết chấm công của một ngày cụ thể.",
         endpoint="daily",
         argument_schema=AttendanceDailyArguments,
@@ -161,6 +169,12 @@ ATTENDANCE_TOOLS = (
     _attendance_tool(
         name="attendance_get_missing_work_context",
         capability="attendance.missing_work_context",
+        intents=frozenset(
+            {
+                Intent.ATTENDANCE_MISSING_WORK_CONTEXT,
+                Intent.ATTENDANCE_MISSING_WORK_EXPLANATION,
+            }
+        ),
         description="Lấy ngữ cảnh giải thích các ngày bị thiếu công.",
         endpoint="missing-work-context",
         argument_schema=DateRangeArguments,

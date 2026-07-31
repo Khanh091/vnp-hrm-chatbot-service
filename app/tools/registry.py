@@ -70,6 +70,7 @@ class ToolRegistry:
         self,
         *,
         intent: Intent | None = None,
+        capability_name: str | None = None,
         domain: str | None = None,
         route: QueryRoute | None = None,
         operation: QueryOperation | None = None,
@@ -81,6 +82,10 @@ class ToolRegistry:
             tool
             for tool in self._tools.values()
             if (intent is None or tool.supports_intent(intent))
+            and (
+                capability_name is None
+                or tool.capability_name == capability_name
+            )
             and (domain is None or tool.domain.value == domain)
             and (route is None or tool.route is route)
             and (operation is None or tool.query_operation is operation)

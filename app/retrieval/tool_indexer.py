@@ -40,7 +40,7 @@ def build_tool_embedding_text(tool: ToolDefinition) -> str:
         (
             f"Tool: {tool.name}",
             f"Domain: {tool.domain.value}",
-            f"Capability: {tool.capability}",
+            f"Capability: {tool.capability_name}",
             "Intents: "
             + ", ".join(sorted(intent.value for intent in tool.intents)),
             f"Operation: {tool.operation.value}",
@@ -144,7 +144,7 @@ class ToolIndexer:
                     tool_version=tool.version,
                     domain=tool.domain.value,
                     route_type=retrieval_route(tool),
-                    capability=tool.capability,
+                    capability=tool.capability_name,
                     operation=tool.operation.value,
                     embedding_text=text,
                     embedding=embedding,

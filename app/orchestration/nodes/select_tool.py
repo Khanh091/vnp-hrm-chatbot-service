@@ -2,6 +2,7 @@ from time import perf_counter
 
 from langgraph.runtime import Runtime
 
+from app.common.error_messages import public_error_message
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update, trusted_today
 from app.orchestration.state import (
@@ -26,6 +27,10 @@ async def select_tool_node(
         for item in state.get("candidates", [])
     ]
     if not candidates:
+        reason_code = (
+            state.get("candidate_resolution_reason")
+            or "NO_RETRIEVAL_CANDIDATES"
+        )
         return {
             **stage_update(
                 state,
@@ -35,8 +40,8 @@ async def select_tool_node(
             ),
             "workflow_status": WorkflowStatus.FAILED,
             "response_type": ChatResponseType.UNSUPPORTED,
-            "response_text": "Yêu cầu này chưa có tool nghiệp vụ phù hợp.",
-            "response_data": {"reason_code": "NO_CANDIDATES"},
+            "response_text": public_error_message(reason_code),
+            "response_data": {"reason_code": reason_code},
             "pending_tool_name": None,
         }
     contexts = runtime.context.tool_selector.build_candidate_contexts(

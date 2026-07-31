@@ -48,6 +48,13 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_summary",
         capability="profile.summary",
+        intents=frozenset(
+            {
+                Intent.PROFILE_BASIC,
+                Intent.PROFILE_SUMMARY,
+                Intent.PROFILE_EMPLOYEE_CODE,
+            }
+        ),
         description=(
             "Lấy hồ sơ nhân sự tổng quan của chính người dùng, gồm họ tên, "
             "mã nhân viên/mã nhân sự, ngày sinh nếu có và thông tin cá nhân cơ bản."
@@ -150,6 +157,9 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_history",
         capability="profile.history",
+        intents=frozenset(
+            {Intent.PROFILE_HISTORY, Intent.PROFILE_WORK_HISTORY}
+        ),
         description="Lấy lịch sử thay đổi công tác của chính người dùng.",
         endpoint="history",
         examples=(
@@ -285,6 +295,9 @@ PROFILE_TOOLS = (
     _profile_tool(
         name="profile_get_contracts",
         capability="profile.contracts",
+        intents=frozenset(
+            {Intent.PROFILE_CONTRACTS, Intent.PROFILE_CONTRACT_EXPIRY}
+        ),
         description="Lấy danh sách và trạng thái hợp đồng lao động.",
         endpoint="contracts",
         examples=(

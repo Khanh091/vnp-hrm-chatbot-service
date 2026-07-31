@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.retrieval.embeddings import EmbeddingProvider
 from app.retrieval.tool_indexer import retrieval_route
 from app.retrieval.vector_store import VectorStore
+from app.routing.capabilities import (
+    CapabilityResolver,
+    NoToolForCapabilityError,
+    RoutingResolutionError,
+    ToolResolver,
+)
 from app.routing.schemas import (
     CandidateRetrievalRequest,
     Domain,
@@ -14,6 +20,8 @@ from app.routing.schemas import (
     RouteType,
     ToolCandidate,
 )
+from app.routing.taxonomy import SubjectScope, SubjectType
+from app.tools.definitions import ToolDefinition
 from app.tools.registry import ToolNotFoundError, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -44,6 +52,8 @@ class CandidateRetriever:
         vector_store: VectorStore,
     ) -> None:
         self._registry = registry
+        self._capability_resolver = CapabilityResolver()
+        self._tool_resolver = ToolResolver(registry)
         self._embedding_provider = embedding_provider
         self._vector_store = vector_store
         self._supported_domains = tuple(
@@ -59,21 +69,64 @@ class CandidateRetriever:
         request: CandidateRetrievalRequest,
     ) -> CandidateRetrievalOutcome:
         classification = request.classification
-        direct_matches = self._registry.find_tools(
-            intent=classification.intent,
-            domain=(
-                classification.domain.value
-                if classification.domain is not None
-                else None
-            ),
-            route=classification.route,
-            operation=(
-                None
-                if classification.operation is Operation.NONE
-                else classification.operation
-            ),
-            scope=classification.scope,
-        )
+        direct_matches: tuple[ToolDefinition, ...] = ()
+        if classification.intent is not None:
+            subject_type = self._subject_type(classification.scope)
+            try:
+                capabilities = self._capability_resolver.resolve(
+                    intent=classification.intent,
+                    subject_type=subject_type,
+                )
+                resolved_tools = []
+                missing_tool = False
+                for capability in capabilities:
+                    try:
+                        resolved_tools.extend(
+                            self._tool_resolver.resolve(
+                                capability=capability,
+                                subject_type=subject_type,
+                            )
+                        )
+                    except NoToolForCapabilityError:
+                        missing_tool = True
+                unique_tools = {
+                    tool.name: tool for tool in resolved_tools
+                }.values()
+                direct_matches = tuple(
+                    tool
+                    for tool in unique_tools
+                    if tool.supports_intent(classification.intent)
+                    and (
+                        classification.domain is None
+                        or tool.domain.value == classification.domain.value
+                    )
+                    and tool.route is classification.route
+                    and (
+                        classification.operation is Operation.NONE
+                        or tool.query_operation is classification.operation
+                    )
+                )
+                if not direct_matches and missing_tool:
+                    return CandidateRetrievalOutcome(
+                        candidates=[],
+                        embedding_ms=0,
+                        vector_search_ms=0,
+                        fallback_reason="NO_TOOL_FOR_CAPABILITY",
+                    )
+                if not direct_matches:
+                    return CandidateRetrievalOutcome(
+                        candidates=[],
+                        embedding_ms=0,
+                        vector_search_ms=0,
+                        fallback_reason="NO_SUBJECT_COMPATIBLE_TOOL",
+                    )
+            except RoutingResolutionError as error:
+                return CandidateRetrievalOutcome(
+                    candidates=[],
+                    embedding_ms=0,
+                    vector_search_ms=0,
+                    fallback_reason=error.reason_code,
+                )
         if (
             classification.intent is not None
             and classification.intent.value == "leave.request_status"
@@ -118,7 +171,7 @@ class CandidateRetriever:
                     ToolCandidate(
                         tool_name=tool.name,
                         domain=Domain(tool.domain.value),
-                        capability=tool.capability,
+                        capability=tool.capability_name,
                         operation=tool.query_operation,
                         score=1.0,
                         rank=1,
@@ -126,7 +179,7 @@ class CandidateRetriever:
                 ],
                 embedding_ms=0,
                 vector_search_ms=0,
-                fallback_reason="DIRECT_INTENT_MAPPING",
+                fallback_reason="DIRECT_CAPABILITY_MAPPING",
             )
 
         route_types = self._metadata_routes(request.classification.route_type)
@@ -211,7 +264,7 @@ class CandidateRetriever:
                 ToolCandidate(
                     tool_name=tool.name,
                     domain=domain,
-                    capability=tool.capability,
+                    capability=tool.capability_name,
                     operation=tool.query_operation,
                     score=match.score,
                     rank=len(candidates) + 1,
@@ -220,15 +273,32 @@ class CandidateRetriever:
             if len(candidates) == request.top_k:
                 break
 
+        validated_candidates = self._validated_candidates(
+            classification.operation,
+            candidates,
+        )
         return CandidateRetrievalOutcome(
-            candidates=self._validated_candidates(
-                classification.operation,
-                candidates,
-            ),
+            candidates=validated_candidates,
             embedding_ms=embedding_ms,
             vector_search_ms=vector_search_ms,
-            fallback_reason=fallback_reason,
+            fallback_reason=(
+                fallback_reason
+                if validated_candidates
+                else "NO_RETRIEVAL_CANDIDATES"
+            ),
         )
+
+    @staticmethod
+    def _subject_type(scope: SubjectScope) -> SubjectType:
+        return {
+            SubjectScope.SELF: SubjectType.SELF,
+            SubjectScope.NAMED_EMPLOYEE: SubjectType.EMPLOYEE,
+            SubjectScope.DEPARTMENT: SubjectType.DEPARTMENT,
+            SubjectScope.COMPANY: SubjectType.COMPANY,
+            SubjectScope.GENERAL: SubjectType.GENERAL,
+            SubjectScope.UNKNOWN: SubjectType.GENERAL,
+            SubjectScope.DIRECT_REPORTS: SubjectType.EMPLOYEE,
+        }[scope]
 
     async def _select_domains(
         self,

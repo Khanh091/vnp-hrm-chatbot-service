@@ -24,7 +24,11 @@ class ToolPolicyError(ValueError):
 def validate_tool_definition(tool: ToolDefinition) -> None:
     if not TOOL_NAME_PATTERN.fullmatch(tool.name):
         raise ToolPolicyError("tool name must be a stable snake_case identifier")
-    if not tool.capability.strip() or not tool.description.strip():
+    if (
+        not tool.capability.strip()
+        or not tool.capability_name.strip()
+        or not tool.description.strip()
+    ):
         raise ToolPolicyError("capability and description are required")
     if not ENDPOINT_PATTERN.fullmatch(tool.endpoint):
         raise ToolPolicyError("endpoint must be a local HRM chatbot API path")

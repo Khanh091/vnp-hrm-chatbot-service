@@ -111,6 +111,20 @@ _SEMANTIC_RULES = (
         is_exclusive=True,
     ),
     SemanticRule(
+        concept="contract_expiry_or_validity",
+        pattern=re.compile(
+            r"\b(?:"
+            r"hop dong(?:.{0,48})"
+            r"(?:het han|con han|con hieu luc|"
+            r"ngay ket thuc|bao gio het han)"
+            r"|(?:da het|ngay ket thuc)(?:.{0,24})hop dong"
+            r")\b"
+        ),
+        candidate_intents=(Intent.PROFILE_CONTRACT_EXPIRY,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="profile_identity_attributes",
         pattern=re.compile(
             r"\b(?:dan toc|quoc tich|ton giao|"
@@ -136,6 +150,26 @@ _SEMANTIC_RULES = (
         ),
         candidate_intents=(Intent.DIRECTORY_EMPLOYEE_DEPARTMENT,),
         confidence=0.95,
+    ),
+    SemanticRule(
+        concept="department_employee_list",
+        pattern=re.compile(
+            r"\b(?:"
+            r"(?:danh sach|liet ke)(?:.{0,20})nhan vien"
+            r"(?:.{0,28})(?:phong|ban|don vi)"
+            r"|nhan vien(?:.{0,28})(?:phong|ban|don vi)"
+            r")\b"
+        ),
+        candidate_intents=(Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,),
+        confidence=0.94,
+    ),
+    SemanticRule(
+        concept="profile_health",
+        pattern=re.compile(
+            r"\b(?:thong tin suc khoe|tinh trang suc khoe|suc khoe)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_HEALTH,),
+        confidence=0.94,
     ),
 )
 

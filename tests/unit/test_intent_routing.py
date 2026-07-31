@@ -118,7 +118,7 @@ async def test_single_intent_maps_without_embedding_or_selector_llm(
         )
     )
 
-    assert outcome.fallback_reason == "DIRECT_INTENT_MAPPING"
+    assert outcome.fallback_reason == "DIRECT_CAPABILITY_MAPPING"
     assert outcome.embedding_ms == 0
     assert outcome.candidates[0].tool_name == tool_name
     assert outcome.candidates[0].operation is Operation.READ

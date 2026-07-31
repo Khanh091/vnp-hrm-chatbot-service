@@ -260,6 +260,7 @@ class ToolDefinition(BaseModel):
     name: str
     domain: Domain
     capability: str
+    capability_name: str = ""
     intent: Intent | None = None
     intents: frozenset[Intent] = frozenset()
     route: QueryRoute | None = None
@@ -284,6 +285,11 @@ class ToolDefinition(BaseModel):
 
     @model_validator(mode="after")
     def derive_routing_metadata(self) -> ToolDefinition:
+        from app.routing.capabilities import (
+            CAPABILITY_REGISTRY,
+            common_capability_names,
+        )
+
         intent_value = {
             "leave.request.create": Intent.LEAVE_CREATE,
             "leave.request.update": Intent.LEAVE_UPDATE,
@@ -311,6 +317,33 @@ class ToolDefinition(BaseModel):
             raise ValueError("primary tool intent must be declared")
         if self.route is not None and self.route is not expected_route:
             raise ValueError("tool query route does not match route_type")
+        capability_name = self.capability_name
+        if not capability_name:
+            common_names = common_capability_names(declared_intents)
+            if len(common_names) != 1:
+                raise ValueError(
+                    "tool intents must resolve to one registered capability"
+                )
+            capability_name = next(iter(common_names))
+        try:
+            capability_definition = CAPABILITY_REGISTRY[capability_name]
+        except KeyError as error:
+            raise ValueError(
+                f"tool capability is not registered: {capability_name}"
+            ) from error
+        if not declared_intents <= capability_definition.supported_intents:
+            raise ValueError(
+                "tool intents must be supported by its capability"
+            )
+        query_operation = {
+            Operation.CREATE: QueryOperation.CREATE,
+            Operation.UPDATE: QueryOperation.UPDATE,
+            Operation.CANCEL: QueryOperation.CANCEL,
+        }.get(self.operation, QueryOperation.READ)
+        if query_operation is not capability_definition.operation:
+            raise ValueError(
+                "tool operation does not match its capability"
+            )
         object.__setattr__(self, "intent", self.intent or intent_value)
         object.__setattr__(self, "intents", frozenset(declared_intents))
         object.__setattr__(self, "route", expected_route)
@@ -329,6 +362,13 @@ class ToolDefinition(BaseModel):
                 "supported_subject_types",
                 subject_types,
             )
+        if not set(self.supported_subject_types) <= set(
+            capability_definition.supported_subject_types
+        ):
+            raise ValueError(
+                "tool subject types must be supported by its capability"
+            )
+        object.__setattr__(self, "capability_name", capability_name)
         return self
 
     def supports_intent(self, intent: Intent) -> bool:

@@ -54,4 +54,5 @@ async def retrieve_candidates_node(
     update["candidates"] = [
         item.model_dump(mode="json") for item in outcome.candidates
     ]
+    update["candidate_resolution_reason"] = outcome.fallback_reason
     return update

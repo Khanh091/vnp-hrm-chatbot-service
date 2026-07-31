@@ -58,6 +58,11 @@ def direct_classify_from_exclusive_hints(
         SubjectType.COMPANY: SubjectScope.COMPANY,
         SubjectType.GENERAL: SubjectScope.GENERAL,
     }[subject.type]
+    if (
+        scope is SubjectScope.GENERAL
+        and SubjectScope.SELF in definition.supported_scopes
+    ):
+        scope = SubjectScope.SELF
     if scope not in definition.supported_scopes:
         return None
     return QueryClassification(
