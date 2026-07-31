@@ -1,6 +1,7 @@
 from app.routing.taxonomy import Intent, SubjectType
 from app.tools.definitions import (
     DepartmentEmployeesArguments,
+    DepartmentListArguments,
     Domain,
     EmployeeCertificateSearchArguments,
     EmployeeSearchArguments,
@@ -58,6 +59,69 @@ def _named_profile_tool(
 
 
 DIRECTORY_TOOLS = (
+    ToolDefinition(
+        name="department_list",
+        domain=Domain.DIRECTORY,
+        capability=Intent.DIRECTORY_DEPARTMENTS.value,
+        intents=frozenset({Intent.DIRECTORY_DEPARTMENTS}),
+        operation=Operation.LIST,
+        route_type=RouteType.QUERY,
+        risk_level=RiskLevel.READ,
+        description=(
+            "Liệt kê phòng ban, đơn vị hoặc cơ quan trong phạm vi công ty "
+            "mà actor được phép xem; không yêu cầu mã phòng ban."
+        ),
+        endpoint=f"{_BASE}/departments",
+        http_method=HttpMethod.GET,
+        argument_schema=DepartmentListArguments,
+        examples=(
+            "Danh sách phòng ban.",
+            "Liệt kê các đơn vị trong công ty.",
+            "Có những phòng nào?",
+            "Cho tôi xem danh mục cơ quan.",
+            "danh sach phong ban",
+        ),
+        negative_examples=(
+            "Danh sách nhân viên phòng Kế toán.",
+            "Phòng ban của tôi là gì?",
+            "Lò Văn Định thuộc đơn vị nào?",
+        ),
+        supported_scopes=(SubjectScope.COMPANY,),
+        supported_subject_types=(SubjectType.COMPANY,),
+        version="1.0",
+    ),
+    ToolDefinition(
+        name="employee_check_department_membership",
+        domain=Domain.DIRECTORY,
+        capability=Intent.DIRECTORY_EMPLOYEE_IN_DEPARTMENT.value,
+        intents=frozenset({Intent.DIRECTORY_EMPLOYEE_IN_DEPARTMENT}),
+        operation=Operation.CHECK,
+        route_type=RouteType.QUERY,
+        risk_level=RiskLevel.READ,
+        description=(
+            "Đọc phòng ban của nhân viên đã resolve để FastAPI so sánh "
+            "với phòng ban tin cậy của actor."
+        ),
+        endpoint=f"{_BASE}/employees/{{employee_id}}/employment",
+        http_method=HttpMethod.GET,
+        argument_schema=EmployeeSubjectArguments,
+        path_arguments=("employee_id",),
+        examples=(
+            "Nguyễn Anh Tuấn có ở phòng ban tôi không?",
+            "Nhân viên này có thuộc đơn vị của tôi không?",
+            "Kiểm tra Lò Văn Định có cùng phòng với tôi.",
+            "Người vừa tìm có làm cùng đơn vị với tôi không?",
+            "nguyen anh tuan co o phong ban toi khong",
+        ),
+        negative_examples=(
+            "Lò Văn Định thuộc đơn vị nào?",
+            "Danh sách nhân viên phòng ban của tôi.",
+            "Phòng ban của tôi là gì?",
+        ),
+        supported_scopes=(SubjectScope.NAMED_EMPLOYEE,),
+        supported_subject_types=(SubjectType.EMPLOYEE,),
+        version="1.0",
+    ),
     ToolDefinition(
         name="employee_find_by_certificate",
         domain=Domain.DIRECTORY,

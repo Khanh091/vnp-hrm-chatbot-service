@@ -92,7 +92,7 @@ _CAPABILITIES = (
         "Đọc thông tin hồ sơ cơ bản của một nhân viên.",
     ),
     _capability(
-        "employee_employment_read",
+        "employee_department_read",
         Domain.PROFILE,
         (
             Intent.PROFILE_EMPLOYMENT,
@@ -419,11 +419,25 @@ _CAPABILITIES = (
         "Tìm kiếm nhân viên theo tên hoặc mã.",
     ),
     _capability(
+        "department_list",
+        Domain.DIRECTORY,
+        (Intent.DIRECTORY_DEPARTMENTS,),
+        (SubjectType.COMPANY,),
+        "List departments visible to the authenticated actor.",
+    ),
+    _capability(
         "department_employee_list",
         Domain.DIRECTORY,
         (Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,),
         (SubjectType.DEPARTMENT,),
         "Liệt kê nhân viên trong một phòng ban.",
+    ),
+    _capability(
+        "employee_department_membership_check",
+        Domain.DIRECTORY,
+        (Intent.DIRECTORY_EMPLOYEE_IN_DEPARTMENT,),
+        (SubjectType.EMPLOYEE,),
+        "Check membership against the actor's trusted department.",
     ),
     _capability(
         "employee_certificate_search",

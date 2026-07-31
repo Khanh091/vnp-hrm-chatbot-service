@@ -11,18 +11,24 @@ from app.routing.schemas import (
     QueryClassification,
     RuleHints,
 )
-from app.routing.taxonomy import Operation, QueryRoute, SubjectScope, SubjectType
+from app.routing.taxonomy import (
+    Intent,
+    Operation,
+    QueryRoute,
+    SubjectScope,
+    SubjectType,
+)
 
 
 def _subject_from_hints(hints: RuleHints) -> SubjectMention:
-    if hints.self_reference:
-        subject_type = SubjectType.SELF
-    elif hints.named_employee_reference:
+    if hints.named_employee_reference:
         subject_type = SubjectType.EMPLOYEE
     elif hints.department_reference:
         subject_type = SubjectType.DEPARTMENT
     elif hints.company_reference:
         subject_type = SubjectType.COMPANY
+    elif hints.self_reference:
+        subject_type = SubjectType.SELF
     else:
         subject_type = SubjectType.GENERAL
     return SubjectMention(type=subject_type)
@@ -51,6 +57,13 @@ def direct_classify_from_exclusive_hints(
     if definition.operation is not Operation.READ:
         return None
     subject = _subject_from_hints(hints)
+    if intent is Intent.DIRECTORY_DEPARTMENTS:
+        subject = SubjectMention(type=SubjectType.COMPANY)
+    elif intent is Intent.DIRECTORY_DEPARTMENT_EMPLOYEES:
+        subject = SubjectMention(
+            type=SubjectType.DEPARTMENT,
+            use_actor_department=hints.self_reference,
+        )
     scope = {
         SubjectType.SELF: SubjectScope.SELF,
         SubjectType.EMPLOYEE: SubjectScope.NAMED_EMPLOYEE,

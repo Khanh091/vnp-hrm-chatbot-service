@@ -76,8 +76,14 @@ def _definition(intent: Intent) -> IntentDefinition:
         )
     if prefix == "directory":
         scopes = {
+            Intent.DIRECTORY_DEPARTMENTS: frozenset(
+                {SubjectScope.COMPANY}
+            ),
             Intent.DIRECTORY_DEPARTMENT_EMPLOYEES: frozenset(
                 {SubjectScope.DEPARTMENT}
+            ),
+            Intent.DIRECTORY_EMPLOYEE_IN_DEPARTMENT: frozenset(
+                {SubjectScope.NAMED_EMPLOYEE}
             ),
             Intent.DIRECTORY_EMPLOYEE_BY_CERTIFICATE: frozenset(
                 {SubjectScope.DEPARTMENT, SubjectScope.COMPANY}

@@ -19,3 +19,4 @@ class ActorContext(BaseModel):
         max_length=64,
     )
     linked_employee_id: int | None = Field(default=None, gt=0)
+    department_id: int | None = Field(default=None, gt=0)

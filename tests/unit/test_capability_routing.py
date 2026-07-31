@@ -5,7 +5,6 @@ import pytest
 from app.routing.capabilities import (
     CAPABILITY_REGISTRY,
     CapabilityResolver,
-    IntentNotRecognizedError,
     NoToolForCapabilityError,
     ToolResolver,
 )
@@ -94,17 +93,18 @@ def test_department_employee_intent_resolves_department_capability() -> None:
     assert tools[0].capability_name == "department_employee_list"
 
 
-def test_department_list_without_registered_intent_is_typed() -> None:
+def test_department_list_resolves_registered_capability() -> None:
     query = QueryNormalizer().normalize("danh sách phòng ban")
-    assert not infer_rule_hints(query).semantic_hints
+    classification = direct_classify_from_exclusive_hints(
+        query,
+        infer_rule_hints(query),
+    )
 
-    with pytest.raises(IntentNotRecognizedError) as error:
-        CapabilityResolver().resolve(
-            intent=None,
-            subject_type=SubjectType.GENERAL,
-        )
-
-    assert error.value.reason_code == "INTENT_NOT_RECOGNIZED"
+    assert classification is not None
+    assert classification.intent is Intent.DIRECTORY_DEPARTMENTS
+    tools = _resolve_tools(Intent.DIRECTORY_DEPARTMENTS, SubjectType.COMPANY)
+    assert [tool.name for tool in tools] == ["department_list"]
+    assert tools[0].capability_name == "department_list"
 
 
 def test_health_has_capability_but_no_odoo_tool_binding() -> None:

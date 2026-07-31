@@ -42,6 +42,60 @@ async def validate_selection_node(
             "Ngữ cảnh làm rõ không còn hợp lệ.",
         )
 
+    subject_resolution = workflow_data.get("subject_resolution")
+    if isinstance(subject_resolution, dict):
+        subject_reason = subject_resolution.get("reason_code")
+        if subject_reason in {
+            "SELF_EMPLOYEE_NOT_LINKED",
+            "ACTOR_DEPARTMENT_NOT_FOUND",
+        }:
+            await runtime.context.conversation_service.clear_workflow(
+                state["conversation_id"],
+                int(state["trusted_context"]["odoo_user_id"]),
+                status=ConversationStatus.FAILED,
+            )
+            return {
+                **_terminal_error(
+                    state,
+                    started,
+                    str(subject_reason),
+                    public_error_message(str(subject_reason)),
+                ),
+                "pending_tool_name": None,
+                "collected_arguments": {},
+                "missing_arguments": [],
+                "ambiguous_arguments": [],
+                "workflow_data": {},
+            }
+    if state.get("pending_tool_name") == "employee_check_department_membership":
+        trusted_context = state["trusted_context"]
+        membership_reason = (
+            "SELF_EMPLOYEE_NOT_LINKED"
+            if trusted_context.get("employee_id") is None
+            else "ACTOR_DEPARTMENT_NOT_FOUND"
+            if trusted_context.get("department_id") is None
+            else None
+        )
+        if membership_reason is not None:
+            await runtime.context.conversation_service.clear_workflow(
+                state["conversation_id"],
+                int(trusted_context["odoo_user_id"]),
+                status=ConversationStatus.FAILED,
+            )
+            return {
+                **_terminal_error(
+                    state,
+                    started,
+                    membership_reason,
+                    public_error_message(membership_reason),
+                ),
+                "pending_tool_name": None,
+                "collected_arguments": {},
+                "missing_arguments": [],
+                "ambiguous_arguments": [],
+                "workflow_data": {},
+            }
+
     resolution = ArgumentResolution(
         arguments=state.get("collected_arguments", {}),
         missing_arguments=state.get("missing_arguments", []),

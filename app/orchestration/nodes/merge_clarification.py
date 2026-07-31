@@ -5,11 +5,14 @@ from typing import Any
 from langgraph.runtime import Runtime
 
 from app.context.date_resolver import AmbiguousDateExpression
+from app.context.entities import SubjectMention
 from app.context.entity_resolver import EntityOption
+from app.context.subject_resolver import SubjectResolutionStatus
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update, trusted_today
 from app.orchestration.state import ChatGraphState, ChatResponseType, WorkflowStatus
 from app.routing.schemas import ToolSelection
+from app.routing.taxonomy import SubjectType
 from app.tools.definitions import TrustedExecutionContext, ValidatedToolExecution
 from app.workflows.slot_manager import SlotState
 
@@ -84,6 +87,7 @@ async def merge_clarification_node(
     message = (state.get("user_message") or "").strip()
     arguments = dict(state.get("collected_arguments", {}))
     options: list[dict[str, object]] = []
+    subject_resolution_data: dict[str, object] | None = None
     resolved = False
     trusted_data = state["trusted_context"]
     structured = state.get("clarification")
@@ -203,6 +207,38 @@ async def merge_clarification_node(
         if matched is not None:
             arguments[field] = matched.value
             resolved = True
+    elif field in {"employee_id", "department_id"} and message:
+        subject_resolution = await runtime.context.subject_resolver.resolve(
+            SubjectMention(
+                type=(
+                    SubjectType.EMPLOYEE
+                    if field == "employee_id"
+                    else SubjectType.DEPARTMENT
+                ),
+                employee_name=message if field == "employee_id" else None,
+                department_name=message if field == "department_id" else None,
+            ),
+            TrustedExecutionContext.model_validate(
+                trusted_data
+            ).actor_context,
+        )
+        subject_resolution_data = subject_resolution.model_dump(mode="json")
+        options = [
+            option.model_dump(mode="json")
+            for option in subject_resolution.options
+        ]
+        if (
+            subject_resolution.status is SubjectResolutionStatus.RESOLVED
+            and subject_resolution.subject is not None
+        ):
+            subject_value = (
+                subject_resolution.subject.employee_id
+                if field == "employee_id"
+                else subject_resolution.subject.department_id
+            )
+            if subject_value is not None:
+                arguments[field] = subject_value
+                resolved = True
     elif field:
         arguments[field] = message
         resolved = bool(message)
@@ -262,6 +298,10 @@ async def merge_clarification_node(
         options=options,
         slot_issues=slot_issues,
     )
+    if subject_resolution_data is not None:
+        updated_workflow_data["subject_resolution"] = (
+            subject_resolution_data
+        )
     update.update(
         {
             "classification": updated_workflow_data.get(

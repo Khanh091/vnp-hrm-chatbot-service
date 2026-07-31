@@ -36,6 +36,7 @@ ODOO_CONTROLLER_ENDPOINTS = {
     "/api/v1/hrm/contracts/expiring",
     "/api/v1/hrm/employees/search",
     "/api/v1/hrm/departments/{department_id}/employees",
+    "/api/v1/hrm/departments",
     "/api/v1/hrm/employees/{employee_id}/basic",
     "/api/v1/hrm/employees/{employee_id}/employment",
     "/api/v1/hrm/employees/{employee_id}/contact",
@@ -88,7 +89,7 @@ def test_catalog_domain_counts_are_expected() -> None:
     assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 42
     assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
     assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
-    assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 5
+    assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 7
     assert sum(tool.domain is Domain.REPORTING for tool in ALL_TOOLS) == 1
 
 

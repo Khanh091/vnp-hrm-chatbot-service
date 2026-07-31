@@ -204,6 +204,29 @@ class SubjectResolver:
                 ),
                 reason_code="SUBJECT_RESOLVED",
             )
+        if (
+            mention.type is SubjectType.DEPARTMENT
+            and mention.use_actor_department
+        ):
+            if actor.linked_employee_id is None:
+                return SubjectResolution(
+                    status=SubjectResolutionStatus.NOT_FOUND,
+                    reason_code="SELF_EMPLOYEE_NOT_LINKED",
+                )
+            if actor.department_id is None:
+                return SubjectResolution(
+                    status=SubjectResolutionStatus.NOT_FOUND,
+                    reason_code="ACTOR_DEPARTMENT_NOT_FOUND",
+                )
+            return SubjectResolution(
+                status=SubjectResolutionStatus.RESOLVED,
+                subject=ResolvedSubject(
+                    type=SubjectType.DEPARTMENT,
+                    department_id=actor.department_id,
+                    source="trusted_context",
+                ),
+                reason_code="ACTOR_DEPARTMENT_RESOLVED",
+            )
         if self._provider is None:
             return SubjectResolution(
                 status=SubjectResolutionStatus.LOOKUP_UNAVAILABLE,

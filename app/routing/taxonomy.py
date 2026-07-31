@@ -133,7 +133,9 @@ class Intent(str, Enum):
     DIRECTORY_EMPLOYEE_SEARCH = "directory.employee_search"
     DIRECTORY_EMPLOYEE_PROFILE = "directory.employee_profile"
     DIRECTORY_EMPLOYEE_DEPARTMENT = "directory.employee_department"
+    DIRECTORY_DEPARTMENTS = "directory.departments"
     DIRECTORY_DEPARTMENT_EMPLOYEES = "directory.department_employees"
+    DIRECTORY_EMPLOYEE_IN_DEPARTMENT = "directory.employee_in_department"
     DIRECTORY_EMPLOYEE_BY_CERTIFICATE = "directory.employee_by_certificate"
 
     REPORT_CONTRACTS_EXPIRING = "report.contracts_expiring"

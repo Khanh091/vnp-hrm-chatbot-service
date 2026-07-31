@@ -61,6 +61,7 @@ async def _trusted_context(
         odoo_user_id=odoo_context.user_id,
         employee_id=odoo_context.employee_id,
         company_id=odoo_context.company_id,
+        department_id=odoo_context.department_id,
         company_ids=odoo_context.company_ids or (odoo_context.company_id,),
         group_codes=odoo_context.group_codes,
         capabilities=odoo_context.capabilities,

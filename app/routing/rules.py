@@ -152,16 +152,39 @@ _SEMANTIC_RULES = (
         confidence=0.95,
     ),
     SemanticRule(
+        concept="directory_departments",
+        pattern=re.compile(
+            r"\b(?:(?:danh sach|liet ke)(?: cac)? "
+            r"(?:phong ban|phong|don vi|co quan)|"
+            r"(?:co nhung|co bao nhieu) (?:phong ban|phong|don vi))\b"
+        ),
+        candidate_intents=(Intent.DIRECTORY_DEPARTMENTS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="directory_employee_in_actor_department",
+        pattern=re.compile(
+            r"\b(?:co (?:o|thuoc) (?:phong ban|phong|don vi) "
+            r"(?:cua )?toi khong|co cung phong (?:voi )?toi khong)\b"
+        ),
+        candidate_intents=(Intent.DIRECTORY_EMPLOYEE_IN_DEPARTMENT,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="department_employee_list",
         pattern=re.compile(
             r"\b(?:"
             r"(?:danh sach|liet ke)(?:.{0,20})nhan vien"
             r"(?:.{0,28})(?:phong|ban|don vi)"
             r"|nhan vien(?:.{0,28})(?:phong|ban|don vi)"
+            r"|nhan vien\s+[A-Z0-9]{2,}(?:\s+[a-z]+){1,6}"
             r")\b"
         ),
         candidate_intents=(Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,),
-        confidence=0.94,
+        confidence=0.99,
+        is_exclusive=True,
     ),
     SemanticRule(
         concept="profile_health",
@@ -193,6 +216,10 @@ _ASCII_NAMED_CONTEXT = re.compile(
     r"\b[a-z][a-z'-]+(?:\s+[a-z][a-z'-]+){2,5}\s+"
     r"(?:o|thuoc|lam|da|co|vao)\b"
 )
+_NAMED_DEPARTMENT_ACRONYM = re.compile(
+    r"\bnhân\s+viên\s+[A-ZÀ-ỸĐ0-9]{2,}"
+    r"(?:\s+[\wÀ-ỹĐđ/-]+){1,6}\s*[?.!]*$"
+)
 
 
 def _as_query(value: NormalizedQuery | str) -> NormalizedQuery:
@@ -221,6 +248,25 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
         for rule in _SEMANTIC_RULES
         if (match := rule.pattern.search(folded)) is not None
     )
+    acronym_department = _NAMED_DEPARTMENT_ACRONYM.search(
+        normalized.original_text
+    )
+    if acronym_department is not None and not any(
+        hint.concept == "department_employee_list"
+        for hint in semantic_hints
+    ):
+        semantic_hints = (
+            *semantic_hints,
+            SemanticHint(
+                concept="department_employee_list",
+                candidate_intents=(
+                    Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,
+                ),
+                confidence=0.99,
+                matched_text=acronym_department.group(0),
+                is_exclusive=True,
+            ),
+        )
     exclusive_intents = {
         intent
         for hint in semantic_hints
@@ -258,7 +304,9 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
         or _ASCII_NAMED_CONTEXT.search(folded)
     )
     self_reference = bool(_SELF.search(folded))
-    department_reference = bool(_DEPARTMENT.search(folded))
+    department_reference = bool(
+        _DEPARTMENT.search(folded) or acronym_department
+    )
     company_reference = bool(_COMPANY.search(folded))
 
     return RuleHints(

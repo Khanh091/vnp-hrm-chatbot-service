@@ -23,6 +23,9 @@ _MESSAGES = {
     "SELF_EMPLOYEE_NOT_LINKED": (
         "Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên."
     ),
+    "ACTOR_DEPARTMENT_NOT_FOUND": (
+        "Hồ sơ nhân viên của bạn chưa có thông tin phòng ban."
+    ),
     "SUBJECT_LOOKUP_NOT_AVAILABLE": (
         "Chức năng tra cứu nhân viên hoặc phòng ban hiện chưa khả dụng."
     ),

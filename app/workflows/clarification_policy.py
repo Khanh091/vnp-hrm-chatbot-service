@@ -5,6 +5,8 @@ _QUESTIONS = {
     "leave_type_id": "Bạn muốn sử dụng loại nghỉ nào?",
     "reason": "Bạn muốn ghi lý do nghỉ là gì?",
     "request_id": "Bạn muốn thao tác với đơn nghỉ nào?",
+    "employee_id": "Bạn muốn tra cứu nhân viên nào?",
+    "department_id": "Bạn muốn xem phòng ban nào?",
 }
 
 

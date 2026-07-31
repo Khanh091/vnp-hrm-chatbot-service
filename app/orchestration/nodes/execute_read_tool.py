@@ -19,6 +19,33 @@ from app.tools.definitions import (
 )
 
 
+def build_department_membership_result(
+    data: object,
+    *,
+    actor_department_id: int | None,
+    employee_name: str | None,
+) -> dict[str, object]:
+    payload = data if isinstance(data, dict) else {}
+    department = payload.get("department")
+    department_id = (
+        department.get("id") if isinstance(department, dict) else None
+    )
+    department_name = (
+        department.get("name") or department.get("display_name")
+        if isinstance(department, dict)
+        else None
+    )
+    return {
+        "employee_name": employee_name,
+        "is_member_of_actor_department": (
+            department_id is not None
+            and actor_department_id is not None
+            and department_id == actor_department_id
+        ),
+        "employee_department": department_name,
+    }
+
+
 async def execute_read_tool_node(
     state: ChatGraphState, runtime: Runtime[GraphContext]
 ) -> dict[str, object]:
@@ -69,6 +96,23 @@ async def execute_read_tool_node(
                 trusted_context=trusted,
             )
         )
+        if (
+            result.success
+            and tool_name == "employee_check_department_membership"
+        ):
+            result = result.model_copy(
+                update={
+                    "data": build_department_membership_result(
+                        result.data,
+                        actor_department_id=trusted.department_id,
+                        employee_name=(
+                            resolved_subject.employee_name
+                            if resolved_subject is not None
+                            else None
+                        ),
+                    )
+                }
+            )
     else:
         result = ToolExecutionResult(
             tool_name=tool_name,

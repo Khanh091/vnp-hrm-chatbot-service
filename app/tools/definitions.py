@@ -87,6 +87,14 @@ class DepartmentSearchArguments(ToolArguments):
     limit: int = Field(default=10, gt=0, le=50)
 
 
+class DepartmentListArguments(ToolArguments):
+    query: str | None = Field(default=None, min_length=1, max_length=256)
+    company_id: int | None = Field(default=None, gt=0)
+    active: bool = True
+    limit: int = Field(default=50, gt=0, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
 class EmployeeSubjectArguments(ToolArguments):
     employee_id: int = Field(gt=0)
 
@@ -214,6 +222,7 @@ class TrustedExecutionContext(BaseModel):
     odoo_user_id: int = Field(gt=0)
     employee_id: int | None = Field(default=None, gt=0)
     company_id: int | None = Field(default=None, gt=0)
+    department_id: int | None = Field(default=None, gt=0)
     company_ids: tuple[int, ...] = ()
     group_codes: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
@@ -238,6 +247,7 @@ class TrustedExecutionContext(BaseModel):
             locale=self.language or "vi_VN",
             timezone=self.timezone,
             linked_employee_id=self.employee_id,
+            department_id=self.department_id,
         )
 
 

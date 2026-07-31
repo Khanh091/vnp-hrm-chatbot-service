@@ -12,6 +12,7 @@ from app.context.entities import (
     SubjectMention,
     TemporalEntities,
 )
+from app.routing.query_normalizer import QueryNormalizer
 from app.routing.schemas import SubjectScope
 from app.routing.taxonomy import SubjectType
 
@@ -113,6 +114,11 @@ class EntityResolver:
         r"(?P<name>[A-ZÀ-ỸĐ][\wÀ-ỹĐđ]*(?:\s+[\wÀ-ỹĐđ/-]+){0,8})",
         re.I,
     )
+    _ACRONYM_DEPARTMENT_AFTER_EMPLOYEES = re.compile(
+        r"\bnhân\s+viên\s+"
+        r"(?P<name>[A-ZÀ-ỸĐ0-9]{2,}(?:\s+[\wÀ-ỹĐđ/-]+){1,8})"
+        r"\s*[?.!]*$",
+    )
     _EMPLOYEE_CODE = re.compile(
         r"\b(?:mã nhân viên|mã nhân sự|mã nv|nhân viên mã)"
         r"\s*[:#-]?\s*"
@@ -207,10 +213,30 @@ class EntityResolver:
 
     def extract_subject(self, text: str) -> SubjectMention:
         normalized = " ".join(text.strip().split())
+        folded = QueryNormalizer.fold(normalized)
+        is_department_list = bool(
+            re.search(
+                r"\b(?:danh sach|liet ke)(?: cac)? "
+                r"(?:phong ban|phong|don vi|co quan)\b",
+                folded,
+            )
+        )
+        use_actor_department = bool(
+            re.search(
+                r"\b(?:phong ban|phong|don vi)(?: cua)? toi\b"
+                r"|\bcung phong(?: voi)? toi\b",
+                folded,
+            )
+        )
         employee_code = self._EMPLOYEE_CODE.search(normalized)
         employee = self._EMPLOYEE.search(normalized)
         bare_employee = self._BARE_EMPLOYEE.search(normalized)
         department = self._DEPARTMENT.search(normalized)
+        if is_department_list:
+            department = None
+        acronym_department = self._ACRONYM_DEPARTMENT_AFTER_EMPLOYEES.search(
+            normalized
+        )
         profile_employee = self._PROFILE_EMPLOYEE.search(normalized)
         possessive_employee = self._POSSESSIVE_EMPLOYEE.search(normalized)
         ascii_employee = self._ASCII_PROFILE_EMPLOYEE.search(normalized)
@@ -268,11 +294,24 @@ class EntityResolver:
             if ascii_employee
             else None
         )
+        if acronym_department is not None:
+            employee_name = None
+        department_name = (
+            acronym_department.group("name").strip()
+            if acronym_department is not None
+            else (
+                department.group("name").strip()
+                if department is not None and not use_actor_department
+                else None
+            )
+        )
         subject_type = (
             SubjectType.EMPLOYEE
             if employee_name or employee_code
             else SubjectType.DEPARTMENT
-            if department
+            if department_name or use_actor_department
+            else SubjectType.COMPANY
+            if is_department_list
             else SubjectType.SELF
             if re.search(r"\b(?:tôi|của tôi|đơn)\b", normalized, re.I)
             else SubjectType.GENERAL
@@ -283,9 +322,8 @@ class EntityResolver:
             employee_code=(
                 employee_code.group("code") if employee_code else None
             ),
-            department_name=(
-                department.group("name").strip() if department else None
-            ),
+            department_name=department_name,
+            use_actor_department=use_actor_department,
             date_reference=(
                 "/".join(
                     part
