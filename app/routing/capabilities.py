@@ -92,7 +92,7 @@ _CAPABILITIES = (
         "Đọc thông tin hồ sơ cơ bản của một nhân viên.",
     ),
     _capability(
-        "employee_department_read",
+        "employee_employment_read",
         Domain.PROFILE,
         (
             Intent.PROFILE_EMPLOYMENT,
@@ -214,12 +214,12 @@ _CAPABILITIES = (
         risk_level=RiskLevel.SENSITIVE_READ,
     ),
     _capability(
-        "employee_family_relation_read",
+        "employee_family_relations_read",
         Domain.PROFILE,
         (Intent.PROFILE_FAMILY_RELATIONS,),
         _SELF_EMPLOYEE,
         "Đọc quan hệ gia đình của nhân viên.",
-        risk_level=RiskLevel.SENSITIVE_READ,
+        risk_level=RiskLevel.FAMILY_RELATIONS_READ,
     ),
     _capability(
         "employee_reward_read",
@@ -267,7 +267,7 @@ _CAPABILITIES = (
         (Intent.PROFILE_PERSONAL_BACKGROUND,),
         _SELF_EMPLOYEE,
         "Đọc thông tin hoàn cảnh cá nhân của nhân viên.",
-        risk_level=RiskLevel.SENSITIVE_READ,
+        risk_level=RiskLevel.PERSONAL_BACKGROUND_READ,
     ),
     _capability(
         "employee_family_economy_read",
@@ -275,7 +275,7 @@ _CAPABILITIES = (
         (Intent.PROFILE_FAMILY_ECONOMY,),
         _SELF_EMPLOYEE,
         "Đọc thông tin kinh tế gia đình của nhân viên.",
-        risk_level=RiskLevel.SENSITIVE_READ,
+        risk_level=RiskLevel.FAMILY_ECONOMY_READ,
     ),
     _capability(
         "employee_health_read",
@@ -283,7 +283,7 @@ _CAPABILITIES = (
         (Intent.PROFILE_HEALTH,),
         _SELF_EMPLOYEE,
         "Đọc thông tin sức khỏe của nhân viên.",
-        risk_level=RiskLevel.SENSITIVE_READ,
+        risk_level=RiskLevel.HEALTH_READ,
     ),
     _capability(
         "employee_attendance_daily_read",

@@ -30,12 +30,15 @@ Quy tắc:
 
 Phân biệt profile:
 - tên, ngày sinh, hồ sơ tổng quan => profile.summary
+- tên gọi khác, tên khác, bí danh => profile.basic
 - mã nhân viên, mã nhân sự => profile.employee_code
 - email, điện thoại, thông tin liên hệ => profile.contact
 - chức danh, vị trí công việc => profile.job_title
 - phòng ban, thuộc phòng nào => profile.department
 - công ty, đơn vị công tác => profile.work_unit
 - quản lý trực tiếp, cấp trên, sếp trực tiếp => profile.manager
+- loại nhân sự, cán bộ quản lý, chức danh/vị trí kiêm nhiệm, công việc hoặc
+  nhiệm vụ chính được giao => profile.employment
 - học vấn, đào tạo, bằng cấp => profile.education
 - chứng chỉ => profile.certificates; kỹ năng => profile.skills
 - quá trình công tác => profile.work_history
@@ -44,7 +47,7 @@ Phân biệt profile:
 - hợp đồng tổng quan/lịch sử => profile.contracts
 - ngày hết hạn/kết thúc hợp đồng => profile.contract_expiry
 - CCCD/CMND/căn cước, ngày-nơi cấp, quốc tịch, dân tộc, tôn giáo, giới tính,
-  tình trạng hôn nhân, tên gọi khác => profile.identity
+  tình trạng hôn nhân => profile.identity
 - hộ khẩu, thường trú, nơi ở hiện tại, địa chỉ, quê quán, nơi sinh =>
   profile.address
 - ngày/hình thức tuyển dụng, ngày vào công ty/TCT/đơn vị, cơ quan tuyển dụng,
@@ -57,6 +60,12 @@ Phân biệt profile:
   profile.transfer_history
 - người thân, quan hệ gia đình, vợ chồng, con cái, thân nhân =>
   profile.family_relations
+- lịch sử/lý lịch bản thân, thân nhân hoặc quan hệ với tổ chức nước ngoài,
+  ghi chú lý lịch => profile.personal_background
+- kinh tế gia đình, lương/thu nhập khai trong hồ sơ, nguồn thu nhập khác,
+  đất hoặc tài sản sản xuất kinh doanh => profile.family_economy
+- tình trạng sức khỏe, nhóm máu, chiều cao, cân nặng, khám sức khỏe,
+  tiêm chủng => profile.health
 - khen thưởng, thành tích, bằng khen, quyết định khen thưởng =>
   profile.rewards
 - kỷ luật, xử lý hoặc quyết định kỷ luật => profile.disciplines

@@ -59,12 +59,18 @@ ODOO_CONTROLLER_ENDPOINTS = {
     "/api/v1/hrm/employees/{employee_id}/appointment-history",
     "/api/v1/hrm/employees/{employee_id}/transfer-history",
     "/api/v1/hrm/profile/current/family-relations",
+    "/api/v1/hrm/profile/current/personal-background",
+    "/api/v1/hrm/profile/current/family-economy",
+    "/api/v1/hrm/profile/current/health",
     "/api/v1/hrm/profile/current/rewards",
     "/api/v1/hrm/profile/current/disciplines",
     "/api/v1/hrm/profile/current/evaluations",
     "/api/v1/hrm/profile/current/party-union",
     "/api/v1/hrm/profile/current/preferences",
     "/api/v1/hrm/employees/{employee_id}/family-relations",
+    "/api/v1/hrm/employees/{employee_id}/personal-background",
+    "/api/v1/hrm/employees/{employee_id}/family-economy",
+    "/api/v1/hrm/employees/{employee_id}/health",
     "/api/v1/hrm/employees/{employee_id}/rewards",
     "/api/v1/hrm/employees/{employee_id}/disciplines",
     "/api/v1/hrm/employees/{employee_id}/evaluations",
@@ -86,7 +92,7 @@ def test_catalog_contains_only_real_odoo_controller_endpoints() -> None:
 
 
 def test_catalog_domain_counts_are_expected() -> None:
-    assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 42
+    assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 48
     assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
     assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
     assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 7

@@ -28,6 +28,7 @@ def _named_profile_tool(
     examples: tuple[str, ...],
     negative_examples: tuple[str, ...],
     sensitive: bool = False,
+    risk_level: RiskLevel | None = None,
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
@@ -41,9 +42,8 @@ def _named_profile_tool(
         intents=intents,
         operation=Operation.GET,
         route_type=RouteType.QUERY,
-        risk_level=(
-            RiskLevel.SENSITIVE_READ if sensitive else RiskLevel.READ
-        ),
+        risk_level=risk_level
+        or (RiskLevel.SENSITIVE_READ if sensitive else RiskLevel.READ),
         description=description,
         endpoint=f"{_BASE}/employees/{{employee_id}}/{endpoint}",
         http_method=HttpMethod.GET,
@@ -240,13 +240,17 @@ DIRECTORY_TOOLS = (
             }
         ),
         endpoint="basic",
-        description="Lấy thông tin cơ bản của một nhân viên đã được resolve.",
+        description=(
+            "Lấy thông tin cơ bản, gồm tên gọi khác và loại nhân sự, của một "
+            "nhân viên đã được resolve."
+        ),
         examples=(
             "Cho xem hồ sơ cơ bản của nhân viên đó.",
             "Mã nhân sự của Lò Văn Định là gì?",
             "Thông tin cá nhân của nhân viên mã 00234086.",
             "Họ tên đầy đủ của người vừa tìm.",
             "Xem hồ sơ tổng quan của cán bộ này.",
+            "Tên gọi khác của nhân viên vừa tìm.",
         ),
         negative_examples=(
             "Lò Văn Định thuộc phòng nào?",
@@ -269,8 +273,9 @@ DIRECTORY_TOOLS = (
         ),
         endpoint="employment",
         description=(
-            "Lấy phòng ban, đơn vị công tác, cơ quan, chức danh và quản lý "
-            "của một nhân viên đã được resolve."
+            "Lấy phòng ban, đơn vị, chức danh, trạng thái quản lý, chức danh/vị "
+            "trí kiêm nhiệm và công việc chính được giao của một nhân viên đã "
+            "được resolve."
         ),
         examples=(
             "Lò Văn Định ở cơ quan nào?",
@@ -279,6 +284,7 @@ DIRECTORY_TOOLS = (
             "Đơn vị công tác của nhân viên vừa tìm.",
             "Chức danh và quản lý trực tiếp của nhân viên đó.",
             "lo van dinh o co quan nao",
+            "Công việc chính được giao của nhân viên vừa tìm.",
         ),
         negative_examples=(
             "Danh sách nhân viên phòng Kế toán.",
@@ -604,6 +610,82 @@ DIRECTORY_TOOLS = (
             "Danh sách nhân viên phòng Kế toán.",
         ),
         sensitive=True,
+        risk_level=RiskLevel.FAMILY_RELATIONS_READ,
+    ),
+    _named_profile_tool(
+        name="employee_get_personal_background",
+        capability=Intent.PROFILE_PERSONAL_BACKGROUND,
+        intents=frozenset({Intent.PROFILE_PERSONAL_BACKGROUND}),
+        endpoint="personal-background",
+        description=(
+            "Đọc lý lịch bản thân và thông tin thân nhân nước ngoài của một nhân viên "
+            "đã được SubjectResolver resolve."
+        ),
+        examples=(
+            "Lý lịch bản thân của nhân viên vừa tìm.",
+            "Thân nhân nước ngoài của Lò Văn Định.",
+            "Quan hệ nước ngoài của nhân viên mã 00234086.",
+            "Thông tin hoàn cảnh cá nhân của cán bộ này.",
+            "Ghi chú lý lịch của người vừa chọn.",
+            "ly lich ban than cua lo van dinh",
+        ),
+        negative_examples=(
+            "Lý lịch bản thân của tôi.",
+            "Quan hệ gia đình của Lò Văn Định.",
+            "Sức khỏe của nhân viên vừa tìm.",
+        ),
+        sensitive=True,
+        risk_level=RiskLevel.PERSONAL_BACKGROUND_READ,
+    ),
+    _named_profile_tool(
+        name="employee_get_family_economy",
+        capability=Intent.PROFILE_FAMILY_ECONOMY,
+        intents=frozenset({Intent.PROFILE_FAMILY_ECONOMY}),
+        endpoint="family-economy",
+        description=(
+            "Đọc hoàn cảnh kinh tế gia đình do một nhân viên đã resolve khai trong "
+            "hồ sơ; đây không phải dữ liệu bảng lương."
+        ),
+        examples=(
+            "Nguồn thu nhập khác của Lò Văn Định.",
+            "Hoàn cảnh kinh tế của nhân viên vừa tìm.",
+            "Đất sản xuất kinh doanh của nhân viên mã 00234086.",
+            "Thu nhập khai báo trong hồ sơ của cán bộ này.",
+            "Tài sản kinh doanh của người vừa chọn.",
+            "kinh te gia dinh cua lo van dinh",
+        ),
+        negative_examples=(
+            "Nguồn thu nhập khác của tôi.",
+            "Phiếu lương của Lò Văn Định.",
+            "Tài khoản ngân hàng của nhân viên.",
+        ),
+        sensitive=True,
+        risk_level=RiskLevel.FAMILY_ECONOMY_READ,
+    ),
+    _named_profile_tool(
+        name="employee_get_health",
+        capability=Intent.PROFILE_HEALTH,
+        intents=frozenset({Intent.PROFILE_HEALTH}),
+        endpoint="health",
+        description=(
+            "Đọc tình trạng, chỉ số, khám sức khỏe và tiêm chủng của một nhân viên "
+            "đã được SubjectResolver resolve."
+        ),
+        examples=(
+            "Nhóm máu của Lò Văn Định.",
+            "Tình trạng sức khỏe của nhân viên vừa tìm.",
+            "Lịch sử khám sức khỏe của nhân viên mã 00234086.",
+            "Chiều cao cân nặng của cán bộ này.",
+            "Thông tin tiêm chủng của người vừa chọn.",
+            "suc khoe cua lo van dinh",
+        ),
+        negative_examples=(
+            "Nhóm máu của tôi.",
+            "Bảo hiểm của Lò Văn Định.",
+            "Số ngày nghỉ ốm của nhân viên.",
+        ),
+        sensitive=True,
+        risk_level=RiskLevel.HEALTH_READ,
     ),
     _named_profile_tool(
         name="employee_get_rewards",

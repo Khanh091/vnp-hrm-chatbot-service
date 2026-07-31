@@ -26,6 +26,8 @@ Quy tắc:
 12. Không biến câu trả lời read-only thành yêu cầu xác nhận.
 13. Không nói rằng đã truy xuất thành công nếu có thể trả lời cụ thể hơn.
 14. Chỉ trả plain text. Không dùng Markdown, dấu **, tiêu đề hoặc danh sách.
+15. Với profile.family_economy, phải nói rõ dữ liệu là thông tin nhân viên
+    khai trong hồ sơ, không phải dữ liệu bảng lương/payroll.
 """.strip()
 
 

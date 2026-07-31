@@ -19,7 +19,7 @@ from app.routing.schemas import (
     ValidationIssue,
     ValidationIssueCategory,
 )
-from app.tools.definitions import RiskLevel
+from app.tools.definitions import SENSITIVE_READ_RISK_LEVELS, RiskLevel
 from app.tools.definitions import RouteType as ToolRouteType
 from app.tools.registry import ToolNotFoundError, ToolRegistry
 
@@ -219,7 +219,7 @@ class ToolSelectionValidator:
     def _threshold(self, risk: RiskLevel) -> float:
         if risk in {RiskLevel.WRITE, RiskLevel.HIGH_RISK_WRITE}:
             return self._write_threshold
-        if risk is RiskLevel.SENSITIVE_READ:
+        if risk in SENSITIVE_READ_RISK_LEVELS:
             return self._sensitive_threshold
         return self._read_threshold
 

@@ -5,7 +5,6 @@ import pytest
 from app.routing.capabilities import (
     CAPABILITY_REGISTRY,
     CapabilityResolver,
-    NoToolForCapabilityError,
     ToolResolver,
 )
 from app.routing.intent_refiner import direct_classify_from_exclusive_hints
@@ -107,7 +106,7 @@ def test_department_list_resolves_registered_capability() -> None:
     assert tools[0].capability_name == "department_list"
 
 
-def test_health_has_capability_but_no_odoo_tool_binding() -> None:
+def test_health_has_self_and_named_odoo_tool_bindings() -> None:
     query = QueryNormalizer().normalize("thông tin sức khỏe của tôi")
     hints = infer_rule_hints(query).semantic_hints
     assert any(
@@ -119,12 +118,16 @@ def test_health_has_capability_but_no_odoo_tool_binding() -> None:
     )
 
     assert [item.name for item in capabilities] == ["employee_health_read"]
-    with pytest.raises(NoToolForCapabilityError) as error:
-        ToolResolver(build_tool_registry()).resolve(
-            capability=capabilities[0],
-            subject_type=SubjectType.SELF,
-        )
-    assert error.value.reason_code == "NO_TOOL_FOR_CAPABILITY"
+    self_tools = ToolResolver(build_tool_registry()).resolve(
+        capability=capabilities[0],
+        subject_type=SubjectType.SELF,
+    )
+    named_tools = ToolResolver(build_tool_registry()).resolve(
+        capability=capabilities[0],
+        subject_type=SubjectType.EMPLOYEE,
+    )
+    assert [tool.name for tool in self_tools] == ["profile_get_health"]
+    assert [tool.name for tool in named_tools] == ["employee_get_health"]
 
 
 def test_contract_taxonomy_and_tool_contract_are_consistent() -> None:

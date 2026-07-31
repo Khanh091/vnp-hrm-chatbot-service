@@ -38,8 +38,23 @@ class Operation(str, Enum):
 class RiskLevel(str, Enum):
     READ = "read"
     SENSITIVE_READ = "sensitive_read"
+    FAMILY_RELATIONS_READ = "family_relations_read"
+    PERSONAL_BACKGROUND_READ = "personal_background_read"
+    FAMILY_ECONOMY_READ = "family_economy_read"
+    HEALTH_READ = "health_read"
     WRITE = "write"
     HIGH_RISK_WRITE = "high_risk_write"
+
+
+SENSITIVE_READ_RISK_LEVELS = frozenset(
+    {
+        RiskLevel.SENSITIVE_READ,
+        RiskLevel.FAMILY_RELATIONS_READ,
+        RiskLevel.PERSONAL_BACKGROUND_READ,
+        RiskLevel.FAMILY_ECONOMY_READ,
+        RiskLevel.HEALTH_READ,
+    }
+)
 
 
 class HttpMethod(str, Enum):

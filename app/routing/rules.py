@@ -128,10 +128,19 @@ _SEMANTIC_RULES = (
         concept="profile_identity_attributes",
         pattern=re.compile(
             r"\b(?:dan toc|quoc tich|ton giao|"
-            r"tinh trang hon nhan|ten goi khac)\b"
+            r"tinh trang hon nhan)\b"
         ),
         candidate_intents=(Intent.PROFILE_IDENTITY,),
         confidence=0.96,
+    ),
+    SemanticRule(
+        concept="profile_other_name",
+        pattern=re.compile(
+            r"\b(?:ten goi khac|ten khac|bi danh)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_BASIC,),
+        confidence=0.98,
+        is_exclusive=True,
     ),
     SemanticRule(
         concept="profile_certificate_issue",
@@ -189,10 +198,55 @@ _SEMANTIC_RULES = (
     SemanticRule(
         concept="profile_health",
         pattern=re.compile(
-            r"\b(?:thong tin suc khoe|tinh trang suc khoe|suc khoe)\b"
+            r"\b(?:thong tin suc khoe|tinh trang suc khoe|suc khoe|"
+            r"nhom mau|chieu cao|can nang|kham suc khoe|tiem chung)\b"
         ),
         candidate_intents=(Intent.PROFILE_HEALTH,),
-        confidence=0.94,
+        confidence=0.98,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_family_relations",
+        pattern=re.compile(
+            r"\b(?:quan he gia dinh|nguoi than|than nhan|"
+            r"me (?:de|ruot|cua)|cha (?:de|ruot|cua)|"
+            r"bo (?:de|ruot|cua)|vo chong|con cai)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_FAMILY_RELATIONS,),
+        confidence=0.97,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_personal_background",
+        pattern=re.compile(
+            r"\b(?:ly lich ban than|lich su ban than|"
+            r"than nhan nuoc ngoai|quan he nuoc ngoai|"
+            r"hoan canh ca nhan)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_PERSONAL_BACKGROUND,),
+        confidence=0.96,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_family_economy",
+        pattern=re.compile(
+            r"\b(?:kinh te gia dinh|nguon thu nhap khac|"
+            r"thu nhap khai bao|dat san xuat kinh doanh|"
+            r"tai san (?:san xuat|kinh doanh))\b"
+        ),
+        candidate_intents=(Intent.PROFILE_FAMILY_ECONOMY,),
+        confidence=0.98,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="profile_primary_assigned_work",
+        pattern=re.compile(
+            r"\b(?:cong viec chinh (?:duoc giao|dang lam)|"
+            r"nhiem vu chinh duoc giao)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_EMPLOYMENT,),
+        confidence=0.98,
+        is_exclusive=True,
     ),
 )
 

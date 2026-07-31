@@ -144,6 +144,156 @@ class DeterministicAnswerFallback:
                         f"{address}."
                     )
             return "Hệ thống chưa lưu thông tin nơi ở hiện nay của bạn."
+        query = self._fold(context.original_query)
+        if context.intent is Intent.PROFILE_FAMILY_RELATIONS:
+            items = data.get("items")
+            if not isinstance(items, list) or not items:
+                return "Hệ thống chưa lưu thông tin quan hệ gia đình của bạn."
+            relation_terms = {
+                "me": ("me", "mẹ"),
+                "cha": ("cha", "cha"),
+                "bo": ("bo", "bố"),
+            }
+            for query_term, labels in relation_terms.items():
+                if query_term not in query:
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    relationship = self._fold(
+                        str(item.get("relationship") or "")
+                    )
+                    if any(label in relationship for label in labels):
+                        name = item.get("full_name")
+                        if name:
+                            return f"{item.get('relationship')} của bạn là {name}."
+                return "Hệ thống chưa lưu thông tin người thân phù hợp."
+            details = [
+                " - ".join(
+                    str(value)
+                    for value in (
+                        item.get("relationship"),
+                        item.get("full_name"),
+                    )
+                    if value
+                )
+                for item in items
+                if isinstance(item, dict)
+            ]
+            return (
+                "Quan hệ gia đình đang được khai trong hồ sơ của bạn: "
+                + "; ".join(details)
+                + "."
+                if details
+                else f"Hồ sơ của bạn có {len(items)} bản ghi quan hệ gia đình."
+            )
+        if context.intent is Intent.PROFILE_FAMILY_ECONOMY:
+            if "thu nhap khac" in query:
+                value = data.get("other_income")
+                return (
+                    f"Nguồn thu nhập khác bạn khai trong hồ sơ là {value}."
+                    if value is not None
+                    else "Hệ thống chưa lưu nguồn thu nhập khác của bạn."
+                )
+            if "san xuat" in query or "kinh doanh" in query:
+                value = data.get("production_business_assets")
+                return (
+                    "Thông tin đất/tài sản sản xuất kinh doanh bạn khai là "
+                    f"{value}."
+                    if value is not None
+                    else "Hệ thống chưa lưu thông tin đất/tài sản sản xuất kinh doanh."
+                )
+            details = [
+                detail
+                for detail in (
+                    (
+                        f"lương khai báo {data.get('declared_salary')}"
+                        if data.get("declared_salary") is not None
+                        else None
+                    ),
+                    (
+                        f"thu nhập khác {data.get('other_income')}"
+                        if data.get("other_income") is not None
+                        else None
+                    ),
+                    (
+                        "đất/tài sản sản xuất kinh doanh "
+                        f"{data.get('production_business_assets')}"
+                        if data.get("production_business_assets") is not None
+                        else None
+                    ),
+                )
+                if detail is not None
+            ]
+            return (
+                "Thông tin kinh tế gia đình bạn khai trong hồ sơ "
+                "(không phải dữ liệu bảng lương): "
+                + "; ".join(details)
+                + "."
+                if details
+                else "Hệ thống chưa lưu thông tin kinh tế gia đình của bạn."
+            )
+        if context.intent is Intent.PROFILE_HEALTH:
+            if "nhom mau" in query:
+                value = data.get("blood_type")
+                return (
+                    f"Nhóm máu đang được lưu của bạn là {value}."
+                    if value
+                    else "Hệ thống chưa lưu nhóm máu của bạn."
+                )
+            details = [
+                detail
+                for detail in (
+                    (
+                        f"tình trạng {data.get('health_status')}"
+                        if data.get("health_status") is not None
+                        else None
+                    ),
+                    (
+                        f"nhóm máu {data.get('blood_type')}"
+                        if data.get("blood_type") is not None
+                        else None
+                    ),
+                    (
+                        f"chiều cao {data.get('height_cm')} cm"
+                        if data.get("height_cm") is not None
+                        else None
+                    ),
+                    (
+                        f"cân nặng {data.get('weight_kg')} kg"
+                        if data.get("weight_kg") is not None
+                        else None
+                    ),
+                    (
+                        f"tiêm chủng {data.get('vaccination_status')}"
+                        if data.get("vaccination_status") is not None
+                        else None
+                    ),
+                )
+                if detail is not None
+            ]
+            if details:
+                return "Thông tin sức khỏe của bạn: " + ", ".join(details) + "."
+            return "Hệ thống chưa lưu thông tin sức khỏe của bạn."
+        if context.intent in {
+            Intent.PROFILE_BASIC,
+            Intent.PROFILE_SUMMARY,
+        }:
+            if "ten goi khac" in query or "ten khac" in query or "bi danh" in query:
+                value = data.get("other_name")
+                return (
+                    f"Tên gọi khác đang được lưu của bạn là {value}."
+                    if value
+                    else "Hệ thống chưa lưu tên gọi khác của bạn."
+                )
+        if context.intent is Intent.PROFILE_EMPLOYMENT:
+            if "cong viec chinh" in query or "nhiem vu chinh" in query:
+                value = data.get("primary_assigned_work")
+                return (
+                    f"Công việc chính được giao của bạn là {value}."
+                    if value
+                    else "Hệ thống chưa lưu công việc chính được giao của bạn."
+                )
         records = data.get("records")
         if isinstance(records, list):
             return (

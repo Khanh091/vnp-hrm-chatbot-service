@@ -22,6 +22,7 @@ def _profile_tool(
     negative_examples: tuple[str, ...],
     intents: frozenset[Intent] = frozenset(),
     sensitive: bool = False,
+    risk_level: RiskLevel | None = None,
     base: str = _BASE,
 ) -> ToolDefinition:
     return ToolDefinition(
@@ -31,9 +32,8 @@ def _profile_tool(
         intents=intents,
         operation=Operation.GET,
         route_type=RouteType.QUERY,
-        risk_level=(
-            RiskLevel.SENSITIVE_READ if sensitive else RiskLevel.READ
-        ),
+        risk_level=risk_level
+        or (RiskLevel.SENSITIVE_READ if sensitive else RiskLevel.READ),
         description=description,
         endpoint=f"{base}/{endpoint}",
         http_method=HttpMethod.GET,
@@ -57,6 +57,7 @@ PROFILE_TOOLS = (
         ),
         description=(
             "Lấy hồ sơ nhân sự tổng quan của chính người dùng, gồm họ tên, "
+            "tên gọi khác, "
             "mã nhân viên/mã nhân sự, ngày sinh nếu có và thông tin cá nhân cơ bản."
         ),
         endpoint="summary",
@@ -76,6 +77,7 @@ PROFILE_TOOLS = (
             "ma nhan vien cua toi",
             "ma nhan su cua toi",
             "thong tin ca nhan cua toi",
+            "Tên gọi khác trong hồ sơ cơ bản.",
         ),
         negative_examples=(
             "Số tài khoản nhận lương của tôi là gì?",
@@ -97,7 +99,8 @@ PROFILE_TOOLS = (
         ),
         description=(
             "Lấy thông tin công tác hiện tại: đơn vị, công ty, phòng ban, chức danh, "
-            "vị trí công việc, loại nhân sự, trạng thái làm việc và quản lý trực tiếp."
+            "vị trí công việc, loại nhân sự, trạng thái quản lý, chức danh/vị trí "
+            "kiêm nhiệm, công việc chính được giao và quản lý trực tiếp."
         ),
         endpoint="employment",
         examples=(
@@ -122,6 +125,8 @@ PROFILE_TOOLS = (
             "Tôi làm ở đâu?",
             "Nơi làm việc hiện tại của tôi.",
             "Cơ quan của tôi là đơn vị nào?",
+            "Công việc chính được giao của tôi.",
+            "Tôi có chức danh kiêm nhiệm nào?",
         ),
         negative_examples=(
             "Lịch sử điều chuyển công tác của tôi.",
@@ -483,6 +488,7 @@ PROFILE_TOOLS = (
         endpoint="family-relations",
         base="/api/v1/hrm/profile/current",
         sensitive=True,
+        risk_level=RiskLevel.FAMILY_RELATIONS_READ,
         examples=(
             "Thông tin người thân của tôi.",
             "Quan hệ gia đình của tôi.",
@@ -495,6 +501,85 @@ PROFILE_TOOLS = (
             "Tình trạng hôn nhân của tôi.",
             "Sở thích của tôi.",
             "Danh sách nhân viên phòng Kế toán.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_personal_background",
+        capability=Intent.PROFILE_PERSONAL_BACKGROUND.value,
+        intents=frozenset({Intent.PROFILE_PERSONAL_BACKGROUND}),
+        description=(
+            "Đọc nhóm lý lịch bản thân, thông tin quan hệ hoặc thân nhân ở nước ngoài "
+            "và ghi chú bổ sung đã khai trong hồ sơ."
+        ),
+        endpoint="personal-background",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        risk_level=RiskLevel.PERSONAL_BACKGROUND_READ,
+        examples=(
+            "Lý lịch bản thân của tôi.",
+            "Thông tin thân nhân ở nước ngoài trong hồ sơ.",
+            "Quan hệ với tổ chức nước ngoài của tôi.",
+            "Thông tin hoàn cảnh cá nhân đã khai.",
+            "Ghi chú bổ sung trong lý lịch của tôi.",
+            "ly lich ban than cua toi",
+        ),
+        negative_examples=(
+            "Quan hệ gia đình của tôi.",
+            "Các nguồn thu nhập khác của tôi.",
+            "Tình trạng sức khỏe của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_family_economy",
+        capability=Intent.PROFILE_FAMILY_ECONOMY.value,
+        intents=frozenset({Intent.PROFILE_FAMILY_ECONOMY}),
+        description=(
+            "Đọc hoàn cảnh kinh tế gia đình do nhân viên khai trong hồ sơ, gồm mức "
+            "lương khai báo, nguồn thu nhập khác và đất/tài sản sản xuất kinh doanh; "
+            "không phải dữ liệu payroll."
+        ),
+        endpoint="family-economy",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        risk_level=RiskLevel.FAMILY_ECONOMY_READ,
+        examples=(
+            "Hoàn cảnh kinh tế gia đình của tôi.",
+            "Các nguồn thu nhập khác của tôi.",
+            "Thu nhập khai trong hồ sơ của tôi.",
+            "Đất sản xuất kinh doanh của tôi.",
+            "Tài sản kinh doanh đã khai trong hồ sơ.",
+            "nguon thu nhap khac cua toi",
+        ),
+        negative_examples=(
+            "Phiếu lương tháng này.",
+            "Tài khoản ngân hàng của tôi.",
+            "Quan hệ gia đình của tôi.",
+        ),
+    ),
+    _profile_tool(
+        name="profile_get_health",
+        capability=Intent.PROFILE_HEALTH.value,
+        intents=frozenset({Intent.PROFILE_HEALTH}),
+        description=(
+            "Đọc nhóm sức khỏe của nhân viên gồm tình trạng sức khỏe, nhóm máu, "
+            "chiều cao, cân nặng, lịch sử khám sức khỏe và tiêm chủng."
+        ),
+        endpoint="health",
+        base="/api/v1/hrm/profile/current",
+        sensitive=True,
+        risk_level=RiskLevel.HEALTH_READ,
+        examples=(
+            "Nhóm máu của tôi.",
+            "Tình trạng sức khỏe của tôi.",
+            "Thông tin sức khỏe của tôi.",
+            "Chiều cao và cân nặng trong hồ sơ.",
+            "Lịch sử khám sức khỏe của tôi.",
+            "tinh trang tiem chung cua toi",
+        ),
+        negative_examples=(
+            "Thông tin bảo hiểm của tôi.",
+            "Số ngày nghỉ ốm còn lại.",
+            "Kết quả đánh giá nhân sự của tôi.",
         ),
     ),
     _profile_tool(
