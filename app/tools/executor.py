@@ -135,7 +135,9 @@ class ToolExecutor:
                     started,
                 )
 
-            untrusted_payload = validated.model_dump(mode="json")
+            untrusted_payload = validated.model_dump(
+                mode="json", exclude_none=True
+            )
             path = self._render_registered_path(
                 tool.endpoint,
                 tool.path_arguments,

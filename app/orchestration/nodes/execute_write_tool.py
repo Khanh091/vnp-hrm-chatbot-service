@@ -1,3 +1,4 @@
+import logging
 from time import perf_counter
 
 from langgraph.runtime import Runtime
@@ -30,18 +31,18 @@ _TRANSIENT_CODES = {
     "HTTP_504",
 }
 
+logger = logging.getLogger(__name__)
+
 
 async def execute_write_tool_node(
     state: ChatGraphState, runtime: Runtime[GraphContext]
 ) -> dict[str, object]:
     started = perf_counter()
     action = state["pending_action"]
-    persisted_action = (
-        await runtime.context.pending_action_service.load_owned(
-            str(action["action_id"]),
-            conversation_id=state["conversation_id"],
-            odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
-        )
+    persisted_action = await runtime.context.pending_action_service.load_owned(
+        str(action["action_id"]),
+        conversation_id=state["conversation_id"],
+        odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
     )
     tool = runtime.context.tool_registry.get(persisted_action.tool_name)
     if not tool.enabled:
@@ -124,11 +125,19 @@ async def execute_write_tool_node(
         reraise=False,
     ):
         with attempt:
-            result = await runtime.context.tool_executor.execute_validated(
-                execution
-            )
+            result = await runtime.context.tool_executor.execute_validated(execution)
         attempt.retry_state.set_result(result)
     assert result is not None
+    logger.info(
+        "write_stage intent=%s tool_name=%s resolved_employee=%s "
+        "selected_request_ref=%s changed_fields=%s odoo_error_code=%s",
+        tool.intent.value,
+        tool.name,
+        trusted.employee_id,
+        arguments.get("request_id"),
+        sorted(arguments.get("changes", {})),
+        result.error_code,
+    )
     if result.error_code == "ACCESS_DENIED":
         decision = AuthorizationDecision(
             allowed=False,
@@ -150,14 +159,38 @@ async def execute_write_tool_node(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),
     )
-    await runtime.context.conversation_service.update(
-        conversation,
-        status=(
-            ConversationStatus.COMPLETED
-            if result.success
-            else ConversationStatus.FAILED
-        ),
-    )
+    if not result.success and tool.name == "leave_update_request":
+        metadata = persisted_action.display_summary
+        snapshot = metadata.get("original_snapshot", {})
+        await runtime.context.conversation_service.update(
+            conversation,
+            status=ConversationStatus.AWAITING_CLARIFICATION,
+            pending_tool_name=tool.name,
+            collected_arguments={
+                "request_id": persisted_action.validated_arguments.get("request_id")
+            },
+            missing_arguments=["changes"],
+            workflow_data={
+                "actionable_loaded": True,
+                "action": "update",
+                "selected_request_ref": persisted_action.validated_arguments.get(
+                    "request_id"
+                ),
+                "original_snapshot": snapshot,
+                "last_failed_patch": metadata.get("validated_patch", {}),
+                "last_error_code": result.error_code,
+                "current_field": "changes",
+            },
+        )
+    else:
+        await runtime.context.conversation_service.update(
+            conversation,
+            status=(
+                ConversationStatus.COMPLETED
+                if result.success
+                else ConversationStatus.FAILED
+            ),
+        )
     update = stage_update(
         state,
         event="tool_execution_completed",

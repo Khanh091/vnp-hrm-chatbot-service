@@ -18,6 +18,9 @@ _MESSAGES = {
     "SUPPORTED_EMPTY": "Hệ thống chưa lưu thông tin này.",
     "INVALID_ARGUMENT": "Thông tin bạn cung cấp chưa hợp lệ.",
     "INVALID_ARGUMENTS": "Thông tin bạn cung cấp chưa hợp lệ.",
+    "INVALID_STRUCTURED_SELECTION": (
+        "Lựa chọn này không còn hợp lệ. Vui lòng chọn lại từ danh sách hiện tại."
+    ),
     "MISSING_ARGUMENT": "Cần bổ sung thêm thông tin.",
     "MISSING_REQUIRED_ARGUMENT": "Cần bổ sung thêm thông tin.",
     "ACCESS_DENIED": "Bạn không có quyền truy cập thông tin này.",
@@ -40,14 +43,28 @@ _MESSAGES = {
     "ODOO_TIMEOUT": "Hệ thống HRM phản hồi chậm. Vui lòng thử lại.",
     "ODOO_CONNECTION_ERROR": "Không thể kết nối đến hệ thống HRM lúc này.",
     "INVALID_LEAVE_DATE_RANGE": (
-        "Khoảng ngày nghỉ không có thời gian làm việc hợp lệ. "
-        "Vui lòng kiểm tra lịch làm việc hoặc chọn khoảng ngày khác."
+        "Khoảng ngày nghỉ không hợp lệ."
+    ),
+    "LEAVE_REQUEST_NOT_EDITABLE": (
+        "Đơn nghỉ này không còn ở trạng thái cho phép sửa."
+    ),
+    "LEAVE_REQUEST_NOT_CANCELLABLE": (
+        "Đơn nghỉ này không còn ở trạng thái cho phép hủy."
+    ),
+    "LEAVE_REQUEST_OVERLAP": (
+        "Khoảng nghỉ mới bị trùng với một đơn nghỉ khác."
+    ),
+    "LEAVE_REQUEST_NOT_FOUND": (
+        "Không tìm thấy đơn nghỉ đã chọn hoặc bạn không còn quyền truy cập."
     ),
     "OVERLAPPING_LEAVE_REQUEST": (
         "Khoảng ngày này trùng với một đơn nghỉ đã có."
     ),
     "INSUFFICIENT_LEAVE_BALANCE": (
-        "Số ngày phép còn lại không đủ cho yêu cầu này."
+        "Số ngày phép khả dụng không đủ cho khoảng nghỉ này."
+    ),
+    "LEAVE_TYPE_NOT_ALLOWED": (
+        "Bạn không thể sử dụng loại nghỉ đã chọn."
     ),
     "LEAVE_TYPE_NOT_FOUND": (
         "Loại nghỉ không còn tồn tại hoặc không còn hiệu lực."

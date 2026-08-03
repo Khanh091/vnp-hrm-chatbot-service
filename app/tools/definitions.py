@@ -61,6 +61,7 @@ class HttpMethod(str, Enum):
     GET = "GET"
     POST = "POST"
     PUT = "PUT"
+    PATCH = "PATCH"
 
 
 class SubjectScope(str, Enum):
@@ -190,6 +191,14 @@ class LeaveRequestStatusArguments(ToolArguments):
     request_id: int = Field(gt=0)
 
 
+class LeaveActionableArguments(ToolArguments):
+    action: Literal["update", "cancel"]
+
+
+class LeaveRequestDetailsArguments(ToolArguments):
+    request_id: int = Field(gt=0)
+
+
 class LeavePeriodArguments(DateRangeArguments):
     leave_type_id: int = Field(gt=0)
     request_unit: Literal["day", "half_day", "hour"] = "day"
@@ -220,8 +229,25 @@ class LeaveCommandArguments(LeavePeriodArguments):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
-class LeaveUpdateArguments(LeaveCommandArguments):
+class LeaveUpdateChanges(ToolArguments):
+    date_from: date | None = None
+    date_to: date | None = None
+    leave_type_id: int | None = Field(default=None, gt=0)
+    reason: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_changed_field(self) -> LeaveUpdateChanges:
+        if not self.model_fields_set:
+            raise ValueError("at least one changed field is required")
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must not be after date_to")
+        return self
+
+
+class LeaveUpdateArguments(ToolArguments):
     request_id: int = Field(gt=0)
+    changes: LeaveUpdateChanges
+    idempotency_key: str = Field(min_length=1, max_length=128)
 
 
 class LeaveCancelArguments(ToolArguments):

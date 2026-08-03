@@ -80,6 +80,7 @@ ATTENDANCE_TOOLS = (
                 Intent.ATTENDANCE_LATE_COUNT,
                 Intent.ATTENDANCE_MISSING_PUNCH_COUNT,
                 Intent.ATTENDANCE_ACTUAL_WORK_DAYS,
+                Intent.ATTENDANCE_RECORDED_DAYS,
             }
         ),
         description=(
@@ -101,6 +102,7 @@ ATTENDANCE_TOOLS = (
             "Công tháng này của tôi là bao nhiêu?",
             "so lan quen cham cong",
             "so ngay lam viec",
+            "tháng này tôi chấm công bao nhiêu ngày",
         ),
         negative_examples=(
             "Chi tiết chấm công hôm nay.",

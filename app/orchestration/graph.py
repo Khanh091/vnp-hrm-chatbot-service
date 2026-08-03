@@ -47,6 +47,7 @@ from app.orchestration.nodes.validate_selection import (
     validate_selection_node,
 )
 from app.orchestration.routes import (
+    route_after_argument_resolution,
     route_after_clarification_merge,
     route_after_classification,
     route_after_retrieval,
@@ -107,7 +108,9 @@ def build_chat_graph(checkpointer: Any = None) -> Any:
         "merge_clarification",
         route_after_clarification_merge,
     )
-    builder.add_edge("resolve_arguments", "validate_selection")
+    builder.add_conditional_edges(
+        "resolve_arguments", route_after_argument_resolution
+    )
     builder.add_conditional_edges(
         "validate_selection", route_after_validation
     )

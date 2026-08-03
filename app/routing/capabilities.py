@@ -307,6 +307,7 @@ _CAPABILITIES = (
             Intent.ATTENDANCE_LATE_COUNT,
             Intent.ATTENDANCE_MISSING_PUNCH_COUNT,
             Intent.ATTENDANCE_ACTUAL_WORK_DAYS,
+            Intent.ATTENDANCE_RECORDED_DAYS,
         ),
         _SELF,
         "Đọc tổng hợp chấm công theo tháng.",

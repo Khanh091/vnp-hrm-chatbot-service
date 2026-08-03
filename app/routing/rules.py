@@ -47,6 +47,16 @@ _SEMANTIC_RULES = (
         is_exclusive=True,
     ),
     SemanticRule(
+        concept="attendance_recorded_days",
+        pattern=re.compile(
+            r"\b(?:cham cong (?:duoc |bao nhieu |may )?ngay|"
+            r"so ngay (?:co )?cham cong)\b"
+        ),
+        candidate_intents=(Intent.ATTENDANCE_RECORDED_DAYS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="attendance_actual_work_days",
         pattern=re.compile(r"\b(?:ngay cong thuc te|so ngay lam viec)\b"),
         candidate_intents=(Intent.ATTENDANCE_ACTUAL_WORK_DAYS,),

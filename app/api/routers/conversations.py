@@ -56,10 +56,7 @@ async def get_conversation(
     workflow_data = item.workflow_data or {}
     pending_clarification = None
     if item.status == ConversationStatus.AWAITING_CLARIFICATION.value:
-        pending_clarification = {
-            "field": workflow_data.get("current_field"),
-            "options": workflow_data.get("clarification_options", []),
-        }
+        pending_clarification = workflow_data.get("clarification_metadata")
     pending_confirmation = None
     if (
         item.status == ConversationStatus.AWAITING_CONFIRMATION.value

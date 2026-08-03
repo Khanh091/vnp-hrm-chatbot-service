@@ -1,3 +1,4 @@
+import logging
 from time import perf_counter
 
 from langgraph.runtime import Runtime
@@ -18,6 +19,8 @@ from app.tools.definitions import (
     ValidatedToolExecution,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def build_department_membership_result(
     data: object,
@@ -27,9 +30,7 @@ def build_department_membership_result(
 ) -> dict[str, object]:
     payload = data if isinstance(data, dict) else {}
     department = payload.get("department")
-    department_id = (
-        department.get("id") if isinstance(department, dict) else None
-    )
+    department_id = department.get("id") if isinstance(department, dict) else None
     department_name = (
         department.get("name") or department.get("display_name")
         if isinstance(department, dict)
@@ -83,9 +84,7 @@ async def execute_read_tool_node(
         ),
         allowed_tools={
             str(candidate["tool_name"])
-            for candidate in (
-                routing_context_value(state, "candidate_contexts") or []
-            )
+            for candidate in (routing_context_value(state, "candidate_contexts") or [])
         },
     )
     if decision.allowed:
@@ -96,10 +95,7 @@ async def execute_read_tool_node(
                 trusted_context=trusted,
             )
         )
-        if (
-            result.success
-            and tool_name == "employee_check_department_membership"
-        ):
+        if result.success and tool_name == "employee_check_department_membership":
             result = result.model_copy(
                 update={
                     "data": build_department_membership_result(
@@ -127,6 +123,28 @@ async def execute_read_tool_node(
             reason_code="ACCESS_DENIED",
             source="odoo",
         )
+    result_payload = result.data if isinstance(result.data, dict) else {}
+    logger.info(
+        "read_stage intent=%s tool_name=%s resolved_employee=%s "
+        "odoo_error_code=%s attendance_source=%s leave_balance_breakdown_keys=%s",
+        classification.intent.value,
+        tool_name,
+        resolved_subject.employee_id if resolved_subject else None,
+        result.error_code,
+        result_payload.get("source"),
+        sorted(
+            key
+            for key in (
+                "allocated_days",
+                "approved_used_days",
+                "pending_days",
+                "remaining_days",
+                "available_days",
+                "validity",
+            )
+            if key in result_payload
+        ),
+    )
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),

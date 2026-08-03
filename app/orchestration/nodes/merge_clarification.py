@@ -10,6 +10,7 @@ from app.common.capability_outcomes import (
 )
 from app.context.date_resolver import AmbiguousDateExpression
 from app.context.entities import SubjectMention
+from app.context.entity_memory import ConversationEntityMemory
 from app.context.entity_resolver import EntityOption
 from app.context.subject_resolver import SubjectResolutionStatus
 from app.orchestration.context import GraphContext
@@ -18,7 +19,17 @@ from app.orchestration.state import ChatGraphState, ChatResponseType, WorkflowSt
 from app.routing.schemas import ToolSelection
 from app.routing.taxonomy import SubjectType
 from app.tools.definitions import TrustedExecutionContext, ValidatedToolExecution
+from app.workflows.leave_action import (
+    LeaveRequestSnapshot,
+    trusted_selected_request,
+    validated_patch,
+)
 from app.workflows.slot_manager import SlotState
+from app.workflows.structured_answer import (
+    DATE_SLOT_NAMES,
+    InvalidStructuredSelection,
+    validate_structured_selection,
+)
 
 
 def merge_workflow_metadata(
@@ -85,7 +96,10 @@ async def merge_clarification_node(
     missing = list(state.get("missing_arguments", []))
     ambiguous = list(state.get("ambiguous_arguments", []))
     field: str | None
-    if workflow:
+    current_field = state.get("workflow_data", {}).get("current_field")
+    if isinstance(current_field, str):
+        field = current_field
+    elif workflow:
         field = workflow.next_field(missing, ambiguous)
     else:
         unresolved = ambiguous or missing
@@ -95,8 +109,42 @@ async def merge_clarification_node(
     options: list[dict[str, object]] = []
     subject_resolution_data: dict[str, object] | None = None
     resolved = False
+    workflow_overrides: dict[str, Any] = {}
     trusted_data = state["trusted_context"]
     structured = state.get("clarification")
+    validated_user_message: str | None = None
+    validated_structured: dict[str, Any] | None = None
+    if isinstance(structured, dict):
+        allowed_options = [
+            item
+            for item in state.get("workflow_data", {}).get(
+                "clarification_options", []
+            )
+            if isinstance(item, dict)
+        ]
+        metadata = state.get("workflow_data", {}).get(
+            "clarification_metadata", {}
+        )
+        try:
+            trusted_selection = validate_structured_selection(
+                structured,
+                expected_field=field,
+                allowed_options=allowed_options,
+                metadata=metadata if isinstance(metadata, dict) else {},
+            )
+        except InvalidStructuredSelection:
+            return _invalid_structured_selection(state, started, field)
+        structured_value = trusted_selection.value
+        validated_user_message = trusted_selection.display_label
+        validated_structured = {
+            "field": field,
+            "value": trusted_selection.value,
+            "label": validated_user_message,
+            "answer_type": trusted_selection.answer_type,
+            "slot_name": structured.get("slot_name") or field,
+        }
+        message = validated_user_message
+        structured = validated_structured
     if (
         field
         and isinstance(structured, dict)
@@ -104,22 +152,67 @@ async def merge_clarification_node(
         and isinstance(structured.get("value"), (bool, float, int, str))
     ):
         structured_value = structured["value"]
-        if field == "leave_type_id":
+        if field in DATE_SLOT_NAMES and structured.get("answer_type") == "date_select":
+            arguments[field] = trusted_selection.business_value
+            resolved = True
+        elif field == "changes" and tool_name == "leave_update_request":
+            known = {
+                str(item.get("value"))
+                for item in state.get("workflow_data", {}).get(
+                    "clarification_options", []
+                )
+                if isinstance(item, dict)
+            }
+            selected_structured_field = str(structured_value)
+            if (
+                selected_structured_field in known
+                and selected_structured_field != "multiple"
+            ):
+                workflow_overrides.update(
+                    {
+                        "selected_change_fields": [selected_structured_field],
+                        "current_field": selected_structured_field,
+                        "clarification_options": [],
+                    }
+                )
+            elif (
+                selected_structured_field == "multiple"
+                and selected_structured_field in known
+            ):
+                workflow_overrides.update(
+                    {
+                        "selected_change_fields": ["multiple"],
+                        "current_field": "changes_instruction",
+                        "clarification_options": [],
+                    }
+                )
+        elif field == "request_id":
             known_options = [
+                item
+                for item in state.get("workflow_data", {}).get(
+                    "clarification_options", []
+                )
+                if isinstance(item, dict)
+            ]
+            selected_request = trusted_selected_request(known_options, structured_value)
+            if selected_request is not None:
+                arguments[field] = selected_request
+                options = known_options
+                resolved = True
+        elif field == "leave_type_id":
+            leave_type_options = [
                 EntityOption.model_validate(item)
                 for item in state.get("workflow_data", {}).get(
                     "clarification_options",
                     [],
                 )
             ]
-            if isinstance(structured_value, int) and any(
-                option.value == structured_value
-                for option in known_options
+            if isinstance(structured_value, (int, str)) and any(
+                str(option.value) == str(structured_value)
+                for option in leave_type_options
             ):
-                arguments[field] = structured_value
-                options = [
-                    item.model_dump(mode="json") for item in known_options
-                ]
+                arguments[field] = int(str(structured_value))
+                options = [item.model_dump(mode="json") for item in leave_type_options]
                 resolved = True
         elif field in {"employee_id", "department_id"}:
             subject_options = [
@@ -130,11 +223,11 @@ async def merge_clarification_node(
                 )
                 if isinstance(item, dict)
             ]
-            if isinstance(structured_value, int) and any(
-                item.get("value") == structured_value
+            if isinstance(structured_value, (int, str)) and any(
+                str(item.get("value")) == str(structured_value)
                 for item in subject_options
             ):
-                arguments[field] = structured_value
+                arguments[field] = int(str(structured_value))
                 options = subject_options
                 resolved = True
         else:
@@ -160,10 +253,120 @@ async def merge_clarification_node(
                     value.date_from if field == "date_from" else value.date_to
                 )
                 resolved = True
+    elif field == "changes" and tool_name == "leave_update_request":
+        folded = " ".join(message.casefold().split())
+        selected_field = (
+            "date_from"
+            if "ngày bắt đầu" in folded
+            else "date_to"
+            if "ngày kết thúc" in folded
+            else "leave_type_id"
+            if "loại nghỉ" in folded
+            else "reason"
+            if "lý do" in folded
+            else None
+        )
+        if selected_field is not None:
+            direct_value: Any | None = None
+            if selected_field in {"date_from", "date_to"}:
+                try:
+                    parsed = runtime.context.date_resolver.resolve(
+                        message,
+                        current_date=trusted_today(str(trusted_data["timezone"])),
+                        timezone=str(trusted_data["timezone"]),
+                    )
+                except AmbiguousDateExpression:
+                    parsed = None
+                if parsed is not None:
+                    direct_value = (
+                        parsed.date_from
+                        if selected_field == "date_from"
+                        else parsed.date_to
+                    )
+            elif selected_field == "reason":
+                reason = re.search(r"(?:thành|sang)\s+(.+)$", message, re.IGNORECASE)
+                if reason:
+                    direct_value = reason.group(1).strip()
+            elif selected_field == "leave_type_id":
+                lookup = await runtime.context.tool_executor.execute_validated(
+                    ValidatedToolExecution(
+                        tool_name="leave_get_types",
+                        arguments={},
+                        trusted_context=TrustedExecutionContext.model_validate(
+                            trusted_data
+                        ),
+                    )
+                )
+                if lookup.success:
+                    typed_options = (
+                        runtime.context.business_entity_resolver.leave_type_options(
+                            lookup.data
+                        )
+                    )
+                    target = re.search(
+                        r"(?:thành|sang)\s+(.+)$", message, re.IGNORECASE
+                    )
+                    matched = (
+                        runtime.context.business_entity_resolver.match_leave_type(
+                            target.group(1).strip(), typed_options
+                        )
+                        if target
+                        else None
+                    )
+                    if matched is not None:
+                        direct_value = matched.value
+                        options = [
+                            item.model_dump(mode="json") for item in typed_options
+                        ]
+            snapshot_data = state.get("workflow_data", {}).get("original_snapshot")
+            if direct_value is not None and isinstance(snapshot_data, dict):
+                try:
+                    patch = validated_patch(
+                        LeaveRequestSnapshot.model_validate(snapshot_data),
+                        {selected_field: direct_value},
+                    )
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    arguments = {
+                        "request_id": state.get("collected_arguments", {}).get(
+                            "request_id"
+                        ),
+                        "changes": patch,
+                    }
+                    resolved = True
+                    workflow_overrides.update(
+                        {
+                            "validated_patch": patch,
+                            "changed_fields": list(patch),
+                            "clarification_options": [],
+                            **(
+                                {"leave_type_options": options}
+                                if selected_field == "leave_type_id"
+                                else {}
+                            ),
+                        }
+                    )
+            workflow_overrides.update(
+                {
+                    "selected_change_fields": [selected_field],
+                    **({} if resolved else {"current_field": selected_field}),
+                    "clarification_options": [],
+                }
+            )
     elif field == "request_id":
-        match = re.search(r"(?:LEAVE-)?(\d+)", message, re.IGNORECASE)
-        if match:
-            arguments[field] = int(match.group(1))
+        mention = runtime.context.entity_resolver.extract_subject(message)
+        reference = runtime.context.entity_memory_service.resolve_leave_request(
+            mention,
+            ConversationEntityMemory.model_validate(state.get("entity_memory", {})),
+        )
+        allowed_values = {
+            str(item.get("value"))
+            for item in state.get("workflow_data", {}).get("clarification_options", [])
+            if isinstance(item, dict)
+        }
+        if reference is not None and str(reference.entity_id) in allowed_values:
+            arguments[field] = int(str(reference.entity_id))
             resolved = True
     elif field == "leave_type_id":
         typed_options = [
@@ -176,7 +379,7 @@ async def merge_clarification_node(
         if not typed_options:
             lookup = await runtime.context.tool_executor.execute_validated(
                 ValidatedToolExecution(
-                    tool_name="leave_list_types",
+                    tool_name="leave_get_types",
                     arguments={},
                     trusted_context=TrustedExecutionContext.model_validate(
                         trusted_data
@@ -189,9 +392,7 @@ async def merge_clarification_node(
                         lookup.data
                     )
                 )
-        options = [
-            item.model_dump(mode="json") for item in typed_options
-        ]
+        options = [item.model_dump(mode="json") for item in typed_options]
         numeric = re.fullmatch(r"\s*(\d+)\s*", message)
         matched = (
             next(
@@ -224,14 +425,11 @@ async def merge_clarification_node(
                 employee_name=message if field == "employee_id" else None,
                 department_name=message if field == "department_id" else None,
             ),
-            TrustedExecutionContext.model_validate(
-                trusted_data
-            ).actor_context,
+            TrustedExecutionContext.model_validate(trusted_data).actor_context,
         )
         subject_resolution_data = subject_resolution.model_dump(mode="json")
         options = [
-            option.model_dump(mode="json")
-            for option in subject_resolution.options
+            option.model_dump(mode="json") for option in subject_resolution.options
         ]
         if (
             subject_resolution.status is SubjectResolutionStatus.RESOLVED
@@ -248,6 +446,44 @@ async def merge_clarification_node(
     elif field:
         arguments[field] = message
         resolved = bool(message)
+
+    if (
+        tool_name == "leave_update_request"
+        and field in {"date_from", "date_to", "leave_type_id", "reason"}
+        and resolved
+    ):
+        snapshot_data = state.get("workflow_data", {}).get("original_snapshot")
+        if isinstance(snapshot_data, dict):
+            raw_changes = dict(
+                state.get("workflow_data", {}).get("validated_patch", {})
+            )
+            raw_changes[field] = arguments[field]
+            try:
+                patch = validated_patch(
+                    LeaveRequestSnapshot.model_validate(snapshot_data),
+                    raw_changes,
+                )
+            except (TypeError, ValueError):
+                resolved = False
+            else:
+                arguments = {
+                    "request_id": state.get("collected_arguments", {}).get(
+                        "request_id"
+                    ),
+                    "changes": patch,
+                }
+                workflow_overrides.update(
+                    {
+                        "validated_patch": patch,
+                        "changed_fields": list(patch),
+                        "clarification_options": [],
+                        **(
+                            {"leave_type_options": options}
+                            if field == "leave_type_id"
+                            else {}
+                        ),
+                    }
+                )
 
     if resolved and field:
         missing = [item for item in missing if item != field]
@@ -269,9 +505,7 @@ async def merge_clarification_node(
             slot_state,
         )
         ambiguous = slot_state.ambiguous
-        slot_issues = [
-            issue.model_dump(mode="json") for issue in slot_state.issues
-        ]
+        slot_issues = [issue.model_dump(mode="json") for issue in slot_state.issues]
     persisted_selection = state.get("workflow_data", {}).get("selection")
     selection = (
         ToolSelection.model_validate(persisted_selection)
@@ -304,10 +538,13 @@ async def merge_clarification_node(
         options=options,
         slot_issues=slot_issues,
     )
+    updated_workflow_data.update(workflow_overrides)
+    if resolved:
+        updated_workflow_data.pop("current_field", None)
+        updated_workflow_data["clarification_options"] = []
+        updated_workflow_data.pop("clarification_metadata", None)
     if subject_resolution_data is not None:
-        updated_workflow_data["subject_resolution"] = (
-            subject_resolution_data
-        )
+        updated_workflow_data["subject_resolution"] = subject_resolution_data
     update.update(
         {
             "classification": updated_workflow_data.get(
@@ -321,6 +558,33 @@ async def merge_clarification_node(
             "missing_arguments": missing,
             "ambiguous_arguments": ambiguous,
             "workflow_data": updated_workflow_data,
+            "user_message": validated_user_message or state.get("user_message"),
+            "clarification": validated_structured or state.get("clarification"),
         }
     )
     return update
+
+
+def _invalid_structured_selection(
+    state: ChatGraphState,
+    started: float,
+    expected_field: str | None,
+) -> dict[str, object]:
+    return {
+        **stage_update(
+            state,
+            event="invalid_structured_selection",
+            timing_name="argument_merge_ms",
+            started=started,
+            data={"expected_field": expected_field},
+        ),
+        "response_type": ChatResponseType.ERROR,
+        "capability_outcome": CapabilityOutcome.INVALID,
+        "response_text": (
+            "Lựa chọn này không còn hợp lệ. "
+            "Vui lòng chọn lại từ danh sách hiện tại."
+        ),
+        "response_data": {"error_code": "INVALID_STRUCTURED_SELECTION"},
+        "user_message": None,
+        "clarification": None,
+    }

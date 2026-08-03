@@ -1,3 +1,4 @@
+from datetime import date
 from enum import Enum
 from typing import Any
 
@@ -71,13 +72,52 @@ class ClarificationAnswer(BaseModel):
 ChatClarification = ClarificationAnswer
 
 
+class StructuredAnswerType(str, Enum):
+    OPTION_SELECT = "option_select"
+    DATE_SELECT = "date_select"
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
+class StructuredAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: StructuredAnswerType
+    slot_name: str | None = Field(default=None, min_length=1, max_length=128)
+    selected_value: str | None = Field(default=None, min_length=1, max_length=500)
+    display_label: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "StructuredAnswer":
+        if self.type in {
+            StructuredAnswerType.OPTION_SELECT,
+            StructuredAnswerType.DATE_SELECT,
+        }:
+            if not self.slot_name or not self.selected_value or not self.display_label:
+                raise ValueError(
+                    "slot_name, selected_value and display_label are required"
+                )
+        elif self.type is StructuredAnswerType.CONFIRM:
+            if not self.selected_value:
+                raise ValueError("selected_value action id is required")
+            if self.slot_name is not None:
+                raise ValueError("slot_name is not used for confirmation")
+        elif self.slot_name is not None:
+            raise ValueError("slot_name is not used for cancellation")
+        if self.type is StructuredAnswerType.DATE_SELECT:
+            try:
+                date.fromisoformat(self.selected_value or "")
+            except ValueError as error:
+                raise ValueError("selected_value must be an ISO date") from error
+        return self
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str | None = Field(default=None, min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=128)
-    action: ChatAction | None = None
-    clarification: ClarificationAnswer | None = None
+    structured_answer: StructuredAnswer | None = None
 
     @field_validator("message")
     @classmethod
@@ -93,15 +133,13 @@ class ChatRequest(BaseModel):
     def exactly_one_input(self) -> "ChatRequest":
         provided = sum(
             item is not None
-            for item in (self.message, self.action, self.clarification)
+            for item in (self.message, self.structured_answer)
         )
         if provided != 1:
             raise ValueError(
-                "provide exactly one of message, action, or clarification"
+                "provide exactly one of message or structured_answer"
             )
-        if (
-            self.action is not None or self.clarification is not None
-        ) and self.conversation_id is None:
+        if self.structured_answer is not None and self.conversation_id is None:
             raise ValueError(
                 "conversation_id is required for workflow continuations"
             )

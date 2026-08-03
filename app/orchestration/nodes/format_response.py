@@ -9,6 +9,7 @@ from app.common.capability_outcomes import (
     outcome_for_success,
     public_outcome_message,
 )
+from app.common.error_messages import public_error_message
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import (
     emit_graph_event,
@@ -56,7 +57,7 @@ async def format_response_node(
     if not result.success:
         response_type = ChatResponseType.ERROR
         outcome = outcome_for_error(result.error_code)
-        text = public_outcome_message(outcome)
+        text = public_error_message(result.error_code)
         data = None
     else:
         response_type = ChatResponseType.ANSWER
@@ -83,14 +84,37 @@ async def format_response_node(
         if write_text is not None:
             text = write_text
         else:
+            classification_data = routing_context_value(state, "classification")
+            classification = QueryClassification.model_validate(
+                classification_data
+            )
             fallback_text = runtime.context.response_formatter.format(
                 result.tool_name,
                 result,
+                intent=classification.intent,
             )
-            try:
-                classification = QueryClassification.model_validate(
-                    routing_context_value(state, "classification")
+            if result.tool_name in {
+                "leave_get_balance",
+                "attendance_get_monthly_summary",
+            }:
+                text = fallback_text
+                data = {"result": result.data}
+                update = stage_update(
+                    state,
+                    event="response_ready",
+                    timing_name="response_formatting_ms",
+                    started=started,
                 )
+                update.update(
+                    {
+                        "response_type": response_type,
+                        "capability_outcome": outcome,
+                        "response_text": text,
+                        "response_data": data,
+                    }
+                )
+                return update
+            try:
                 trusted = state["trusted_context"]
                 context = runtime.context.answer_context_builder.build(
                     original_query=(

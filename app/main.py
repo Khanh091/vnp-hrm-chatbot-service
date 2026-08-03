@@ -316,6 +316,21 @@ def create_app(
         request: Request,
         error: RequestValidationError,
     ) -> JSONResponse:
+        body = error.body if isinstance(error.body, dict) else {}
+        structured = body.get("structured_answer")
+        structured_data = structured if isinstance(structured, dict) else {}
+        unknown_fields = sorted(
+            str(item["loc"][-1])
+            for item in error.errors()
+            if item.get("type") == "extra_forbidden" and item.get("loc")
+        )
+        logger.warning(
+            "request_validation_failed request_model=ChatRequest "
+            "unknown_fields=%s structured_answer_type=%s slot_name=%s",
+            unknown_fields,
+            structured_data.get("type"),
+            structured_data.get("slot_name"),
+        )
         details: dict[str, object] = {
             "errors": [
                 {

@@ -8,7 +8,11 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas.chat import ChatRequest, ChatResponse
+from app.api.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    StructuredAnswerType,
+)
 from app.api.schemas.common import ResponseMeta
 from app.api.security import IngressUserDependency
 from app.dependencies import OdooClientDependency, RequestIdDependency
@@ -77,19 +81,38 @@ async def _run_pipeline(
     request: ChatRequest,
     trusted_context: TrustedExecutionContext,
 ) -> ChatPipelineResult:
-    if request.action is not None:
+    answer = request.structured_answer
+    if answer is not None and answer.type in {
+        StructuredAnswerType.CONFIRM,
+        StructuredAnswerType.CANCEL,
+    }:
         return await pipeline.process(
             None,
             trusted_context,
-            action_type=request.action.type.value,
-            action_id=request.action.action_id,
+            action_type=(
+                "confirm"
+                if answer.type is StructuredAnswerType.CONFIRM
+                else "cancel"
+                if answer.selected_value
+                else "cancel_workflow"
+            ),
+            action_id=answer.selected_value,
         )
-    if request.clarification is not None:
+    if answer is not None:
+        slot_name = answer.slot_name or ""
+        internal_field = (
+            "request_id" if slot_name == "leave_request_id" else slot_name
+        )
         return await pipeline.process(
-            request.clarification.label
-            or str(request.clarification.value),
+            answer.display_label,
             trusted_context,
-            clarification=request.clarification.model_dump(mode="json"),
+            clarification={
+                "field": internal_field,
+                "value": answer.selected_value,
+                "label": answer.display_label,
+                "answer_type": answer.type.value,
+                "slot_name": slot_name,
+            },
         )
     return await pipeline.process(request.message, trusted_context)
 
@@ -144,7 +167,7 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
     if result.type.value == "clarification_required":
         payload["data"] = {
             key: data[key]
-            for key in ("field", "options", "actions")
+            for key in ("message_type", "text", "clarification")
             if key in data
         }
         return "clarification", payload
@@ -156,6 +179,8 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
         }
         return "confirmation", payload
     if result.type.value == "error":
+        if isinstance(data.get("error_code"), str):
+            payload["data"] = {"error_code": data["error_code"]}
         return "error", payload
     return "answer", payload
 

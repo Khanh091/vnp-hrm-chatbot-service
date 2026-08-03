@@ -39,12 +39,14 @@ class EntityMemoryService:
         if tool_name not in {
             "leave_get_history",
             "leave_get_request_status",
+            "leave_list_actionable_requests",
         }:
             return memory
-        records = sorted(
-            self._records(data),
-            key=self._leave_sort_key,
-            reverse=True,
+        raw_records = self._records(data)
+        records = (
+            raw_records
+            if tool_name == "leave_list_actionable_requests"
+            else sorted(raw_records, key=self._leave_sort_key, reverse=True)
         )
         references: list[ReferencedEntity] = []
         now = datetime.now(timezone.utc)
@@ -52,22 +54,27 @@ class EntityMemoryService:
             entity_id = record.get("id") or record.get("request_id")
             if not isinstance(entity_id, (int, str)):
                 continue
-            code = record.get("code") or record.get("request_code")
             date_from = record.get("date_from")
             date_to = record.get("date_to")
-            label_parts = [str(code or f"Đơn nghỉ #{entity_id}")]
+            label_parts: list[str] = []
             if date_from:
-                label_parts.append(self._display_date(date_from))
+                period = self._display_date(date_from)
                 if date_to:
-                    label_parts.append(f"đến {self._display_date(date_to)}")
+                    period += f"–{self._display_date(date_to)}"
+                label_parts.append(period)
+            leave_type = self._leave_type_label(record)
+            if leave_type:
+                label_parts.append(leave_type)
             state_label = self._state_label(record.get("state"))
             if state_label:
                 label_parts.append(state_label)
+            if not label_parts:
+                label_parts.append("Đơn nghỉ phép")
             references.append(
                 ReferencedEntity(
                     entity_type="leave_request",
                     entity_id=entity_id,
-                    label=" — ".join(label_parts),
+                    label=" · ".join(label_parts),
                     ordinal=ordinal,
                     created_at=now,
                     attributes={
@@ -78,6 +85,13 @@ class EntityMemoryService:
                             "date_from",
                             "date_to",
                             "state",
+                            "leave_type",
+                            "leave_type_name",
+                            "reason",
+                            "number_of_days",
+                            "duration_days",
+                            "can_update",
+                            "can_cancel",
                         )
                         if key in record
                     },
@@ -146,6 +160,13 @@ class EntityMemoryService:
         }.get(str(value or "").casefold())
 
     @staticmethod
+    def _leave_type_label(record: dict[str, Any]) -> str | None:
+        value = record.get("leave_type_name") or record.get("leave_type")
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("display_name")
+        return str(value) if value else None
+
+    @staticmethod
     def _parse_reference_date(
         value: str,
     ) -> tuple[int, int, int | None] | None:
@@ -189,7 +210,14 @@ class EntityMemoryService:
             return [item for item in data if isinstance(item, dict)]
         if not isinstance(data, dict):
             return []
-        for key in ("records", "items", "requests", "data", "result"):
+        for key in (
+            "records",
+            "items",
+            "requests",
+            "actionable_requests",
+            "data",
+            "result",
+        ):
             value = data.get(key)
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]

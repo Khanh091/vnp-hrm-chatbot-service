@@ -33,6 +33,7 @@ class EntityOption(BaseModel):
 
     value: int = Field(gt=0)
     label: str = Field(min_length=1, max_length=300)
+    description: str | None = Field(default=None, max_length=500)
 
 
 class BusinessEntityResolver:
@@ -61,7 +62,14 @@ class BusinessEntityResolver:
                 or item.get("display_name")
             )
             if isinstance(value, int) and isinstance(label, str):
-                options.append(EntityOption(value=value, label=label))
+                description = item.get("description") or item.get("note")
+                options.append(
+                    EntityOption(
+                        value=value,
+                        label=label,
+                        description=str(description) if description else None,
+                    )
+                )
         return options
 
     @staticmethod

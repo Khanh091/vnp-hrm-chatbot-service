@@ -15,12 +15,22 @@ async def persist_conversation_node(
     started = perf_counter()
     message = state.get("user_message")
     if message:
+        clarification = state.get("clarification")
+        structured_data = (
+            {
+                "answer_type": clarification.get("answer_type"),
+                "slot_name": clarification.get("slot_name"),
+                "selected_value": clarification.get("value"),
+            }
+            if isinstance(clarification, dict)
+            else {}
+        )
         await runtime.context.conversation_service.add_message(
             conversation_id=state["conversation_id"],
             role=MessageRole.USER,
             message_type=MessageType.TEXT,
             content=message,
-            structured_data={},
+            structured_data=structured_data,
             request_id=state["request_id"],
         )
     response_type = state.get("response_type")
@@ -41,9 +51,15 @@ async def persist_conversation_node(
         "status",
         "field",
         "options",
+        "type",
+        "entity_type",
+        "prompt",
         "title",
         "summary",
         "expires_at",
+        "message_type",
+        "text",
+        "clarification",
     }
     safe_data: dict[str, Any] = {
         key: response_data[key]

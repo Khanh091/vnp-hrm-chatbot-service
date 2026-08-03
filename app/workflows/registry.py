@@ -79,6 +79,13 @@ def build_workflow_registry() -> WorkflowRegistry:
         allows_structured_option=True,
         validator_name="positive_id",
     )
+    changes = _slot(
+        "changes",
+        "business.leave_changes",
+        2,
+        "Bạn muốn sửa thông tin nào?",
+        allows_structured_option=True,
+    )
     return WorkflowRegistry(
         (
             WorkflowDefinition(
@@ -94,13 +101,7 @@ def build_workflow_registry() -> WorkflowRegistry:
             WorkflowDefinition(
                 intent=Intent.LEAVE_UPDATE,
                 tool_name="leave_update_request",
-                slots=(
-                    request_id,
-                    date_from.model_copy(update={"priority": 2}),
-                    date_to.model_copy(update={"priority": 3}),
-                    leave_type.model_copy(update={"priority": 4}),
-                    reason.model_copy(update={"priority": 5}),
-                ),
+                slots=(request_id, changes),
                 requires_confirmation=True,
                 confirmation_title="Xác nhận cập nhật đơn nghỉ phép",
                 confirmation_question=(

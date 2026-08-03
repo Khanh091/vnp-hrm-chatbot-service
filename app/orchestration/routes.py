@@ -68,6 +68,16 @@ def route_after_clarification_merge(
     )
 
 
+def route_after_argument_resolution(
+    state: ChatGraphState,
+) -> Literal["validate_selection", "format_response"]:
+    return (
+        "format_response"
+        if state.get("response_type") is not None
+        else "validate_selection"
+    )
+
+
 def route_after_validation(
     state: ChatGraphState,
 ) -> Literal[

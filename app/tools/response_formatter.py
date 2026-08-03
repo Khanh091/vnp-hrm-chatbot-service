@@ -1,7 +1,11 @@
+import logging
 from collections.abc import Callable
 from typing import Any
 
+from app.routing.taxonomy import Intent
 from app.tools.definitions import ToolExecutionResult
+
+logger = logging.getLogger(__name__)
 
 Formatter = Callable[[dict[str, Any]], str]
 EMPTY_VALUE = "—"
@@ -100,10 +104,7 @@ def _format_profile_contact(data: dict[str, Any]) -> str:
             "Hệ thống chưa có email công việc."
         )
     if email:
-        return (
-            f"Email đang lưu của bạn là {email}. "
-            "Hệ thống chưa có số điện thoại."
-        )
+        return f"Email đang lưu của bạn là {email}. Hệ thống chưa có số điện thoại."
     return "Hệ thống chưa có email hoặc số điện thoại của bạn."
 
 
@@ -139,11 +140,7 @@ def _format_skills(data: dict[str, Any]) -> str:
     skills = data.get("skills")
     if not isinstance(skills, list) or not skills:
         return "Bạn chưa có kỹ năng nào được lưu trên hệ thống."
-    names = [
-        _display(row.get("skill"))
-        for row in skills
-        if isinstance(row, dict)
-    ]
+    names = [_display(row.get("skill")) for row in skills if isinstance(row, dict)]
     return f"Kỹ năng đang lưu: {', '.join(names)}."
 
 
@@ -190,14 +187,83 @@ def _format_attendance_daily(data: dict[str, Any]) -> str:
     return f"Chấm công ngày {work_date}: {'; '.join(details)}."
 
 
-def _format_attendance_monthly(data: dict[str, Any]) -> str:
+def _format_attendance_monthly(
+    data: dict[str, Any], intent: Intent | str | None = None
+) -> str:
+    logger.info(
+        "attendance_monthly intent=%s source=%s fields=%s",
+        getattr(intent, "value", intent),
+        data.get("source"),
+        sorted(
+            key
+            for key in (
+                "month",
+                "actual_work_days",
+                "attendance_record_days",
+                "total_worked_hours",
+                "source",
+            )
+            if key in data
+        ),
+    )
+    if intent in {Intent.ATTENDANCE_RECORDED_DAYS, "attendance.recorded_days"}:
+        return (
+            f"Tháng {_display(data.get('month'))}, bạn có "
+            f"{_display(data.get('attendance_record_days'))} ngày có bản ghi chấm công."
+        )
+    if intent in {
+        Intent.ATTENDANCE_ACTUAL_WORK_DAYS,
+        "attendance.actual_work_days",
+    }:
+        return (
+            f"Tháng {_display(data.get('month'))}, bạn có "
+            f"{_display(data.get('actual_work_days'))} ngày công thực tế."
+        )
     return (
-        f"Tổng hợp kỳ công: {_display(data.get('actual_work_days'))} ngày công, "
+        f"Tổng hợp kỳ công tháng {_display(data.get('month'))}: "
+        f"{_display(data.get('actual_work_days'))} ngày công thực tế, "
+        f"{_display(data.get('attendance_record_days'))} ngày có bản ghi chấm công, "
         f"{_display(data.get('total_worked_hours'))} giờ làm, "
         f"{_display(data.get('overtime_hours'))} giờ tăng ca, "
         f"{_display(data.get('late_count'))} lần đi muộn, "
         f"{_display(data.get('missing_punch_count'))} lần thiếu chấm công."
     )
+
+
+def _format_leave_balance(data: dict[str, Any]) -> str:
+    keys = {
+        key
+        for key in (
+            "allocated_days",
+            "approved_used_days",
+            "pending_days",
+            "remaining_days",
+            "available_days",
+            "validity",
+        )
+        if key in data
+    }
+    logger.info("leave_balance breakdown_keys=%s", sorted(keys))
+    remaining = data.get("remaining_days")
+    available = data.get("available_days")
+    if all(
+        data.get(key) is not None
+        for key in ("remaining_days", "pending_days", "available_days")
+    ):
+        return (
+            f"Bạn còn {remaining} ngày phép theo phân bổ. Trong đó "
+            f"{data['pending_days']} ngày đang được giữ cho các đơn chờ xử lý, "
+            f"nên hiện có {available} ngày khả dụng."
+        )
+    logger.warning(
+        "leave_balance pending_breakdown_missing breakdown_keys=%s", sorted(keys)
+    )
+    if remaining is not None and available is not None:
+        return (
+            f"Bạn còn {remaining} ngày phép. Hệ thống hiện tính "
+            f"{available} ngày có thể sử dụng ngay."
+        )
+    return f"Bạn còn {_first(data, 'remaining_days', 'balance')} ngày phép."
 
 
 class ToolResponseFormatter:
@@ -213,17 +279,13 @@ class ToolResponseFormatter:
             "attendance_get_daily": _format_attendance_daily,
             "attendance_get_monthly_summary": _format_attendance_monthly,
             "attendance_get_late_summary": lambda data: (
-                f"Bạn có {_first(data, 'late_count', default=0)} "
-                "lần đi muộn trong kỳ."
+                f"Bạn có {_first(data, 'late_count', default=0)} lần đi muộn trong kỳ."
             ),
             "attendance_get_missing_punch_summary": lambda data: (
                 f"Có {_first(data, 'missing_punch_count', default=0)} "
                 "bản ghi thiếu chấm vào hoặc chấm ra."
             ),
-            "leave_get_balance": lambda data: (
-                f"Bạn còn {_first(data, 'remaining_days', 'balance')} ngày "
-                f"{_first(data, 'leave_type_name', default='phép')}."
-            ),
+            "leave_get_balance": _format_leave_balance,
             "leave_get_used": lambda data: (
                 f"Bạn đã sử dụng {_first(data, 'used_days', 'used')} ngày "
                 f"{_first(data, 'leave_type_name', default='phép')}."
@@ -238,6 +300,8 @@ class ToolResponseFormatter:
         self,
         tool_name: str,
         result: ToolExecutionResult,
+        *,
+        intent: Intent | str | None = None,
     ) -> str:
         if not result.success:
             return "Không thể truy xuất dữ liệu HRM lúc này."
@@ -245,4 +309,6 @@ class ToolResponseFormatter:
         formatter = self._formatters.get(tool_name)
         if formatter is None:
             return "Đã truy xuất dữ liệu HRM thành công."
+        if tool_name == "attendance_get_monthly_summary":
+            return _format_attendance_monthly(data, intent)
         return formatter(data)

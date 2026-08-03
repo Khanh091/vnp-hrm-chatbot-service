@@ -90,6 +90,7 @@ Phân biệt attendance:
 - số lần/ngày đi muộn => attendance.late_count
 - số lần thiếu chấm vào/ra => attendance.missing_punch_count
 - số ngày công thực tế => attendance.actual_work_days
+- số ngày có bản ghi chấm công, chấm công bao nhiêu ngày => attendance.recorded_days
 - từng bản ghi/lịch sử chấm công => attendance.history
 - giải thích thiếu công => attendance.missing_work_explanation
 
