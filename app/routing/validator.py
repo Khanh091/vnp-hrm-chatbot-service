@@ -178,7 +178,10 @@ class ToolSelectionValidator:
         if not clarification:
             try:
                 validated = tool.argument_schema.model_validate(normalized)
-                normalized = validated.model_dump(mode="json")
+                # Persist exactly the supplied business patch. Optional fields
+                # omitted by the user must not become explicit null updates in
+                # the pending action or its confirmation summary.
+                normalized = validated.model_dump(mode="json", exclude_none=True)
             except ValidationError as error:
                 for item in error.errors():
                     error_field = (

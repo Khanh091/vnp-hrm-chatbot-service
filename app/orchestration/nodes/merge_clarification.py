@@ -155,7 +155,10 @@ async def merge_clarification_node(
         if field in DATE_SLOT_NAMES and structured.get("answer_type") == "date_select":
             arguments[field] = trusted_selection.business_value
             resolved = True
-        elif field == "changes" and tool_name == "leave_update_request":
+        elif (
+            field in {"changes", "changes_multi"}
+            and tool_name == "leave_update_request"
+        ):
             known = {
                 str(item.get("value"))
                 for item in state.get("workflow_data", {}).get(
@@ -165,24 +168,59 @@ async def merge_clarification_node(
             }
             selected_structured_field = str(structured_value)
             if (
-                selected_structured_field in known
+                field == "changes" and selected_structured_field in known
                 and selected_structured_field != "multiple"
             ):
                 workflow_overrides.update(
                     {
                         "selected_change_fields": [selected_structured_field],
+                        "multi_edit_mode": False,
                         "current_field": selected_structured_field,
                         "clarification_options": [],
                     }
                 )
             elif (
-                selected_structured_field == "multiple"
+                field == "changes"
+                and selected_structured_field == "multiple"
                 and selected_structured_field in known
             ):
                 workflow_overrides.update(
                     {
-                        "selected_change_fields": ["multiple"],
-                        "current_field": "changes_instruction",
+                        "selected_change_fields": [],
+                        "multi_edit_mode": True,
+                        "current_field": "changes_multi",
+                        "clarification_options": [],
+                    }
+                )
+            elif (
+                field == "changes_multi"
+                and selected_structured_field == "done"
+                and selected_structured_field in known
+                and state.get("workflow_data", {}).get("validated_patch")
+            ):
+                patch = dict(state["workflow_data"]["validated_patch"])
+                arguments = {
+                    "request_id": state.get("collected_arguments", {}).get(
+                        "request_id"
+                    ),
+                    "changes": patch,
+                }
+                workflow_overrides.update(
+                    {
+                        "multi_edit_mode": False,
+                        "current_field": None,
+                        "clarification_options": [],
+                    }
+                )
+                resolved = True
+            elif (
+                field == "changes_multi"
+                and selected_structured_field in known
+            ):
+                workflow_overrides.update(
+                    {
+                        "selected_change_fields": [selected_structured_field],
+                        "current_field": selected_structured_field,
                         "clarification_options": [],
                     }
                 )
@@ -198,6 +236,10 @@ async def merge_clarification_node(
             if selected_request is not None:
                 arguments[field] = selected_request
                 options = known_options
+                # Keep the already allowlisted request across the next graph node.
+                # The generic resolved-slot cleanup removes clarification_options,
+                # so resolve_arguments must be able to trust this validated ref.
+                workflow_overrides["selected_request_ref"] = selected_request
                 resolved = True
         elif field == "leave_type_id":
             leave_type_options = [
@@ -465,6 +507,14 @@ async def merge_clarification_node(
                 )
             except (TypeError, ValueError):
                 resolved = False
+                if field == "date_from":
+                    workflow_overrides["clarification_error"] = (
+                        "Ngày bắt đầu không được sau ngày kết thúc."
+                    )
+                elif field == "date_to":
+                    workflow_overrides["clarification_error"] = (
+                        "Ngày kết thúc không được trước ngày bắt đầu."
+                    )
             else:
                 arguments = {
                     "request_id": state.get("collected_arguments", {}).get(
@@ -484,6 +534,19 @@ async def merge_clarification_node(
                         ),
                     }
                 )
+                if state.get("workflow_data", {}).get("multi_edit_mode"):
+                    arguments = {
+                        "request_id": state.get("collected_arguments", {}).get(
+                            "request_id"
+                        )
+                    }
+                    workflow_overrides.update(
+                        {
+                            "multi_edit_mode": True,
+                            "current_field": "changes_multi",
+                        }
+                    )
+                    resolved = False
 
     if resolved and field:
         missing = [item for item in missing if item != field]

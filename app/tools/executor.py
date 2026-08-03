@@ -148,6 +148,21 @@ class ToolExecutor:
                 for key, value in untrusted_payload.items()
                 if key not in tool.path_arguments
             }
+            if tool.name == "leave_update_request":
+                # The workflow keeps updates grouped under ``changes`` so the
+                # confirmation can reason about a bounded patch.  Odoo's
+                # registered PUT contract accepts those validated fields at
+                # the request root, so flatten only this schema-validated map
+                # at the transport boundary.
+                changes = payload.pop("changes", {})
+                if not isinstance(changes, dict):
+                    return self._failure(
+                        tool_name,
+                        "INVALID_ARGUMENTS",
+                        "Leave update changes must be an object",
+                        started,
+                    )
+                payload.update(changes)
             # Trusted values are added only after extra fields were rejected.
             payload["odoo_user_id"] = context.odoo_user_id
 

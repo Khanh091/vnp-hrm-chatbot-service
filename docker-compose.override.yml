@@ -1,0 +1,6 @@
+services:
+  api:
+    volumes:
+      # Local development: application code is mounted into the existing image.
+      # Python changes then need only `docker compose restart api`, not a rebuild.
+      - ./app:/app/app:ro

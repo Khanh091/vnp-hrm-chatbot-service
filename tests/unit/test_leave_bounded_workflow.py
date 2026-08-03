@@ -139,11 +139,11 @@ def test_update_reason_only_does_not_require_dates_or_leave_type() -> None:
 @pytest.mark.asyncio
 async def test_update_payload_excludes_self_from_overlap_by_path_identity() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "PATCH"
+        assert request.method == "PUT"
         assert request.url.path == "/api/hrm-chatbot/v1/leave/requests/123"
         body = json.loads(request.content)
         assert body == {
-            "changes": {"date_to": "2026-08-12"},
+            "date_to": "2026-08-12",
             "idempotency_key": "update-123",
             "odoo_user_id": 42,
         }
@@ -212,19 +212,21 @@ def test_leave_balance_uses_pending_breakdown_without_inference() -> None:
         result(
             {
                 "allocated_days": 17,
-                "approved_used_days": 5,
-                "pending_days": 5,
-                "remaining_days": 12,
-                "available_days": 7,
+                    "approved_used_days": 5,
+                    "pending_days": 5,
+                    "draft_days": 2,
+                    "remaining_days": 12,
+                    "available_days": 7,
                 "validity": "2026-12-31",
             }
         ),
     )
 
-    assert answer == (
-        "Bạn còn 12 ngày phép theo phân bổ. Trong đó 5 ngày đang được giữ "
-        "cho các đơn chờ xử lý, nên hiện có 7 ngày khả dụng."
-    )
+    assert "tổng hạn mức 17 ngày" in answer
+    assert "đã dùng 5 ngày và còn 12 ngày" in answer
+    assert "sử dụng 7 ngày theo tiến độ tích lũy" in answer
+    assert "5 ngày chờ duyệt và 2 ngày nháp" in answer
+    assert "không giữ số dư phép" in answer
 
 
 def test_attendance_monthly_preserves_odoo_business_fields() -> None:

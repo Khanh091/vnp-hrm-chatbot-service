@@ -125,6 +125,10 @@ class Intent(str, Enum):
     )
     ATTENDANCE_ACTUAL_WORK_DAYS = "attendance.actual_work_days"
     ATTENDANCE_RECORDED_DAYS = "attendance.recorded_days"
+    ATTENDANCE_NO_ATTENDANCE_DAYS = "attendance.no_attendance_days"
+    ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS = (
+        "attendance.unassigned_shift_worked_days"
+    )
     ATTENDANCE_HISTORY = "attendance.history"
     ATTENDANCE_MONTHLY_SUMMARY = "attendance.monthly_summary"
     ATTENDANCE_LATE_SUMMARY = "attendance.late_summary"

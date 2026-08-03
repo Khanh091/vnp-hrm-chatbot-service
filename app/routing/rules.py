@@ -37,6 +37,27 @@ _SEMANTIC_RULES = (
         is_exclusive=True,
     ),
     SemanticRule(
+        concept="attendance_unassigned_shift_worked_days",
+        pattern=re.compile(
+            r"\b(?:so ngay )?(?:khong (?:duoc )?phan ca|khong co ca) "
+            r"(?:nhung |ma )?(?:co )?(?:di lam|cham cong)\b"
+        ),
+        candidate_intents=(
+            Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,
+        ),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
+        concept="attendance_no_attendance_days",
+        pattern=re.compile(
+            r"\b(?:so ngay )?(?:khong|chua) cham cong\b"
+        ),
+        candidate_intents=(Intent.ATTENDANCE_NO_ATTENDANCE_DAYS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="attendance_missing_punch",
         pattern=re.compile(
             r"\b(?:quen cham cong|thieu luot cham cong|"
@@ -374,11 +395,14 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
     if operation is not None and _LEAVE_CONTEXT.search(folded):
         domain_signals = tuple(dict.fromkeys((*domain_signals, Domain.LEAVE)))
 
+    self_reference = bool(_SELF.search(folded))
     named_reference = bool(
         _NAMED_EMPLOYEE.search(normalized.original_text)
-        or _ASCII_NAMED_CONTEXT.search(folded)
+        or (
+            not self_reference
+            and _ASCII_NAMED_CONTEXT.search(folded)
+        )
     )
-    self_reference = bool(_SELF.search(folded))
     department_reference = bool(
         _DEPARTMENT.search(folded) or acronym_department
     )

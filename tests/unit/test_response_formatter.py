@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from app.routing.taxonomy import Intent
 from app.tools.definitions import ToolExecutionResult
 from app.tools.response_formatter import (
     ToolResponseFormatter,
@@ -230,7 +231,14 @@ def test_attendance_monthly_uses_normalized_contract(
         "attendance_get_monthly_summary",
         _result(
             {
+                "month": "2026-08",
                 "actual_work_days": 21,
+                "valid_attendance_days": 20,
+                "missing_punch_days": 0,
+                "late_early_days": 0,
+                "wrong_shift_days": 0,
+                "no_attendance_days": 1,
+                "unassigned_shift_worked_days": 8,
                 "total_worked_hours": 168.5,
                 "overtime_hours": 6.0,
                 "late_count": 2,
@@ -239,11 +247,41 @@ def test_attendance_monthly_uses_normalized_contract(
         ),
     )
 
-    assert "21 ngày công" in answer
+    assert "20 ngày hợp lệ" in answer
+    assert "1 ngày không chấm công" in answer
+    assert "8 ngày không phân ca nhưng có đi làm" in answer
+    assert "Hệ số ngày công thực tế là 21" in answer
     assert "168.5 giờ làm" in answer
     assert "6.0 giờ tăng ca" in answer
-    assert "2 lần đi muộn" in answer
-    assert "1 lần thiếu chấm công" in answer
+
+
+@pytest.mark.parametrize(
+    ("intent", "field", "expected"),
+    [
+        (
+            Intent.ATTENDANCE_NO_ATTENDANCE_DAYS,
+            "no_attendance_days",
+            "1 ngày không chấm công",
+        ),
+        (
+            Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,
+            "unassigned_shift_worked_days",
+            "8 ngày không được phân ca nhưng có đi làm",
+        ),
+    ],
+)
+def test_attendance_bucket_formatter(
+    formatter: ToolResponseFormatter,
+    intent: Intent,
+    field: str,
+    expected: str,
+) -> None:
+    answer = formatter.format(
+        "attendance_get_monthly_summary",
+        _result({"month": "2026-08", field: 1 if "no_" in field else 8}),
+        intent=intent,
+    )
+    assert expected in answer
 
 
 def test_missing_punch_uses_normalized_count(
@@ -255,3 +293,15 @@ def test_missing_punch_uses_normalized_count(
     )
 
     assert "Có 3 bản ghi" in answer
+
+
+def test_leave_used_explains_only_approved_usage(
+    formatter: ToolResponseFormatter,
+) -> None:
+    answer = formatter.format(
+        "leave_get_used",
+        _result({"used_days": 0}),
+    )
+
+    assert "0 ngày phép đã được duyệt và trừ vào số dư" in answer
+    assert "Đơn nháp hoặc chờ duyệt" in answer

@@ -35,6 +35,13 @@ async def ask_clarification_node(
         question = slot.prompt if slot else clarification_question(field or "details")
         if field == "changes_instruction":
             question = "Bạn muốn thay đổi những thông tin nào và thành giá trị gì?"
+        if tool_name == "leave_update_request":
+            question = {
+                "date_from": "Bạn muốn đổi ngày bắt đầu thành ngày nào?",
+                "date_to": "Bạn muốn đổi ngày kết thúc thành ngày nào?",
+                "leave_type_id": "Bạn muốn đổi sang loại nghỉ nào?",
+                "reason": "Bạn muốn đổi lý do thành gì?",
+            }.get(field, question)
         if field in ambiguous and field in {"date", "date_from", "date_to"}:
             question = "Bạn muốn chọn ngày nào và thuộc tuần nào?"
     else:
@@ -61,6 +68,15 @@ async def ask_clarification_node(
         workflow_data["clarification_options"] = [
             dict(item) for item in CHANGE_FIELD_OPTIONS
         ]
+    if field == "changes_multi":
+        question = "Bạn muốn sửa thêm thông tin nào?"
+        workflow_data["clarification_options"] = [
+            dict(item) for item in CHANGE_FIELD_OPTIONS if item["value"] != "multiple"
+        ]
+        if workflow_data.get("validated_patch"):
+            workflow_data["clarification_options"].append(
+                {"value": "done", "label": "Hoàn tất chỉnh sửa"}
+            )
     if field == "leave_type_id" and not workflow_data.get("clarification_options"):
         lookup = await runtime.context.tool_executor.execute_validated(
             ValidatedToolExecution(
@@ -132,21 +148,34 @@ async def ask_clarification_node(
         ]
     if input_type == "date":
         collected = state.get("collected_arguments", {})
+        snapshot = workflow_data.get("original_snapshot", {})
+        patch = workflow_data.get("validated_patch", {})
         minimum = (
             collected.get("date_from")
             if field in {"date_to", "end_date"}
+            and tool_name != "leave_update_request"
+            else patch.get("date_from") or snapshot.get("date_from")
+            if field == "date_to" and tool_name == "leave_update_request"
             else trusted_today(str(state["trusted_context"]["timezone"]))
             if field in {"date_from", "start_date"}
             and tool_name == "leave_create_request"
             else None
         )
+        maximum = (
+            patch.get("date_to") or snapshot.get("date_to")
+            if field == "date_from" and tool_name == "leave_update_request"
+            else None
+        )
         clarification.update(
             {
                 "min_date": str(minimum) if minimum else None,
-                "max_date": None,
+                "max_date": str(maximum) if maximum else None,
                 "initial_date": None,
             }
         )
+    clarification_error = workflow_data.pop("clarification_error", None)
+    if clarification_error:
+        question = f"{clarification_error} {question}"
     workflow_data["clarification_metadata"] = clarification
     await runtime.context.conversation_service.update(
         conversation,

@@ -30,6 +30,7 @@ ODOO_CONTROLLER_ENDPOINTS = {
     "/api/hrm-chatbot/v1/leave/current/request-status",
     "/api/hrm-chatbot/v1/leave/current/eligibility",
     "/api/hrm-chatbot/v1/leave/requests",
+    "/api/hrm-chatbot/v1/leave/requests/actionable",
     "/api/hrm-chatbot/v1/leave/requests/{request_id}",
     "/api/hrm-chatbot/v1/leave/requests/{request_id}/cancel",
     "/api/v1/hrm/employees/search-by-certificate",
@@ -94,7 +95,7 @@ def test_catalog_contains_only_real_odoo_controller_endpoints() -> None:
 def test_catalog_domain_counts_are_expected() -> None:
     assert sum(tool.domain is Domain.PROFILE for tool in ALL_TOOLS) == 48
     assert sum(tool.domain is Domain.ATTENDANCE for tool in ALL_TOOLS) == 6
-    assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 10
+    assert sum(tool.domain is Domain.LEAVE for tool in ALL_TOOLS) == 12
     assert sum(tool.domain is Domain.DIRECTORY for tool in ALL_TOOLS) == 7
     assert sum(tool.domain is Domain.REPORTING for tool in ALL_TOOLS) == 1
 

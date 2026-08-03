@@ -219,14 +219,34 @@ def _format_attendance_monthly(
             f"Tháng {_display(data.get('month'))}, bạn có "
             f"{_display(data.get('actual_work_days'))} ngày công thực tế."
         )
+    if intent in {
+        Intent.ATTENDANCE_NO_ATTENDANCE_DAYS,
+        "attendance.no_attendance_days",
+    }:
+        return (
+            f"Tháng {_display(data.get('month'))}, bạn có "
+            f"{_display(data.get('no_attendance_days'))} ngày không chấm công."
+        )
+    if intent in {
+        Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,
+        "attendance.unassigned_shift_worked_days",
+    }:
+        return (
+            f"Tháng {_display(data.get('month'))}, bạn có "
+            f"{_display(data.get('unassigned_shift_worked_days'))} ngày "
+            "không được phân ca nhưng có đi làm."
+        )
     return (
         f"Tổng hợp kỳ công tháng {_display(data.get('month'))}: "
-        f"{_display(data.get('actual_work_days'))} ngày công thực tế, "
-        f"{_display(data.get('attendance_record_days'))} ngày có bản ghi chấm công, "
+        f"{_display(data.get('valid_attendance_days'))} ngày hợp lệ, "
+        f"{_display(data.get('missing_punch_days'))} ngày quên chấm vào/ra, "
+        f"{_display(data.get('late_early_days'))} ngày đi muộn/về sớm, "
+        f"{_display(data.get('wrong_shift_days'))} ngày không đúng phân ca, "
+        f"{_display(data.get('no_attendance_days'))} ngày không chấm công, "
+        f"{_display(data.get('unassigned_shift_worked_days'))} ngày không phân ca nhưng có đi làm. "
+        f"Hệ số ngày công thực tế là {_display(data.get('actual_work_days'))}, "
         f"{_display(data.get('total_worked_hours'))} giờ làm, "
-        f"{_display(data.get('overtime_hours'))} giờ tăng ca, "
-        f"{_display(data.get('late_count'))} lần đi muộn, "
-        f"{_display(data.get('missing_punch_count'))} lần thiếu chấm công."
+        f"{_display(data.get('overtime_hours'))} giờ tăng ca."
     )
 
 
@@ -237,6 +257,7 @@ def _format_leave_balance(data: dict[str, Any]) -> str:
             "allocated_days",
             "approved_used_days",
             "pending_days",
+            "draft_days",
             "remaining_days",
             "available_days",
             "validity",
@@ -246,14 +267,28 @@ def _format_leave_balance(data: dict[str, Any]) -> str:
     logger.info("leave_balance breakdown_keys=%s", sorted(keys))
     remaining = data.get("remaining_days")
     available = data.get("available_days")
-    if all(
-        data.get(key) is not None
-        for key in ("remaining_days", "pending_days", "available_days")
-    ):
+    if remaining is not None and available is not None:
+        source = (
+            "Theo dữ liệu hợp đồng, "
+            if data.get("balance_source") == "contract_fallback"
+            else "Theo phân bổ phép, "
+        )
+        pending = data.get("pending_days")
+        draft = data.get("draft_days")
+        request_info = ""
+        if pending is not None and draft is not None:
+            request_info = (
+                f" Các đơn hiện có {pending} ngày chờ duyệt và "
+                f"{draft} ngày nháp; hai trạng thái này không giữ "
+                "số dư phép."
+            )
         return (
-            f"Bạn còn {remaining} ngày phép theo phân bổ. Trong đó "
-            f"{data['pending_days']} ngày đang được giữ cho các đơn chờ xử lý, "
-            f"nên hiện có {available} ngày khả dụng."
+            f"{source}bạn có tổng hạn mức "
+            f"{_display(data.get('allocated_days'))} ngày, đã dùng "
+            f"{_display(data.get('approved_used_days'))} ngày và còn "
+            f"{remaining} ngày. Tại thời điểm hiện tại, hệ thống "
+            f"cho phép sử dụng {available} ngày theo tiến độ tích lũy."
+            f"{request_info}"
         )
     logger.warning(
         "leave_balance pending_breakdown_missing breakdown_keys=%s", sorted(keys)
@@ -287,8 +322,10 @@ class ToolResponseFormatter:
             ),
             "leave_get_balance": _format_leave_balance,
             "leave_get_used": lambda data: (
-                f"Bạn đã sử dụng {_first(data, 'used_days', 'used')} ngày "
-                f"{_first(data, 'leave_type_name', default='phép')}."
+                f"Bạn có {_first(data, 'used_days', 'used')} ngày "
+                f"{_first(data, 'leave_type_name', default='phép')} đã được "
+                "duyệt và trừ vào số dư. Đơn nháp hoặc chờ duyệt "
+                "không được tính vào chỉ tiêu này."
             ),
             "leave_get_request_status": lambda data: (
                 f"Đơn nghỉ {_first(data, 'request_code', 'request_id')} đang ở "

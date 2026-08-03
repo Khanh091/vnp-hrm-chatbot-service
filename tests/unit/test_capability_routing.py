@@ -17,6 +17,38 @@ from app.tools.definitions import ToolDefinition
 
 
 @pytest.mark.parametrize(
+    ("query", "expected_intent"),
+    [
+        (
+            "số ngày không phân ca nhưng đi làm của tôi",
+            Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,
+        ),
+        (
+            "số ngày không chấm công tháng này của tôi",
+            Intent.ATTENDANCE_NO_ATTENDANCE_DAYS,
+        ),
+    ],
+)
+def test_specific_attendance_buckets_resolve_monthly_tool(
+    query: str,
+    expected_intent: Intent,
+) -> None:
+    normalized = QueryNormalizer().normalize(query)
+    classification = direct_classify_from_exclusive_hints(
+        normalized,
+        infer_rule_hints(normalized),
+    )
+
+    assert classification is not None
+    assert classification.intent is expected_intent
+    assert classification.scope is SubjectScope.SELF
+    tools = _resolve_tools(expected_intent, SubjectType.SELF)
+    assert [tool.name for tool in tools] == [
+        "attendance_get_monthly_summary"
+    ]
+
+
+@pytest.mark.parametrize(
     "query",
     (
         "hợp đồng của tôi hết hạn chưa",

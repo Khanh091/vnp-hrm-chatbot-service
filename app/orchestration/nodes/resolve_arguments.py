@@ -332,7 +332,11 @@ async def resolve_arguments_node(
         else:
             resolved_arguments["request_id"] = trusted_request_id
         stored_patch = workflow_data.get("validated_patch")
-        if tool_name == "leave_update_request" and isinstance(stored_patch, dict):
+        if (
+            tool_name == "leave_update_request"
+            and isinstance(stored_patch, dict)
+            and not workflow_data.get("multi_edit_mode")
+        ):
             resolved_arguments["changes"] = stored_patch
     resolved_subject = (
         subject_resolution.subject if subject_resolution is not None else None
@@ -409,7 +413,7 @@ async def resolve_arguments_node(
                         for option in subject_resolution.options
                     ]
                     if subject_resolution is not None and subject_resolution.options
-                    else state.get("workflow_data", {}).get(
+                    else workflow_data.get(
                         "clarification_options",
                         [],
                     )
