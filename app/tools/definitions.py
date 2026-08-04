@@ -369,9 +369,18 @@ class ToolDefinition(BaseModel):
             raise ValueError("primary tool intent must be declared")
         if self.route is not None and self.route is not expected_route:
             raise ValueError("tool query route does not match route_type")
+        query_operation = {
+            Operation.CREATE: QueryOperation.CREATE,
+            Operation.UPDATE: QueryOperation.UPDATE,
+            Operation.DELETE: QueryOperation.DELETE,
+            Operation.CANCEL: QueryOperation.CANCEL,
+        }.get(self.operation, QueryOperation.READ)
         capability_name = self.capability_name
         if not capability_name:
-            common_names = common_capability_names(declared_intents)
+            common_names = common_capability_names(
+                declared_intents,
+                query_operation,
+            )
             if len(common_names) != 1:
                 raise ValueError(
                     "tool intents must resolve to one registered capability"
@@ -387,12 +396,6 @@ class ToolDefinition(BaseModel):
             raise ValueError(
                 "tool intents must be supported by its capability"
             )
-        query_operation = {
-            Operation.CREATE: QueryOperation.CREATE,
-            Operation.UPDATE: QueryOperation.UPDATE,
-            Operation.DELETE: QueryOperation.DELETE,
-            Operation.CANCEL: QueryOperation.CANCEL,
-        }.get(self.operation, QueryOperation.READ)
         if query_operation is not capability_definition.operation:
             raise ValueError(
                 "tool operation does not match its capability"

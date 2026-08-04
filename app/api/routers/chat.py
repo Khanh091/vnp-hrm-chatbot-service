@@ -172,11 +172,49 @@ def _public_final(result: ChatPipelineResult) -> tuple[str, dict[str, Any]]:
         }
         return "clarification", payload
     if result.type.value == "confirmation_required":
-        payload["data"] = {
-            key: data[key]
-            for key in ("action_id", "title", "summary", "expires_at")
-            if key in data
-        }
+        # Profile CRUD stores the public card below ``data.confirmation``.
+        # Keep that same shape on SSE as conversation history; flattening the
+        # wrong level drops action_id and makes the live confirmation unusable
+        # until the browser reloads the persisted conversation.
+        confirmation = data.get("confirmation")
+        if isinstance(confirmation, dict):
+            safe_confirmation = {
+                key: confirmation[key]
+                for key in (
+                    "action_id",
+                    "action",
+                    "operation",
+                    "write_mode",
+                    "title",
+                    "summary",
+                    "confirm_label",
+                    "cancel_label",
+                    "expires_at",
+                )
+                if key in confirmation
+            }
+            payload["data"] = {
+                "message_type": "confirmation",
+                "text": data.get("text") or result.answer,
+                "confirmation": safe_confirmation,
+            }
+        else:
+            # Retain the legacy flat confirmation contract.
+            payload["data"] = {
+                key: data[key]
+                for key in (
+                    "action_id",
+                    "action",
+                    "operation",
+                    "write_mode",
+                    "title",
+                    "summary",
+                    "confirm_label",
+                    "cancel_label",
+                    "expires_at",
+                )
+                if key in data
+            }
         return "confirmation", payload
     if result.type.value == "error":
         if isinstance(data.get("error_code"), str):

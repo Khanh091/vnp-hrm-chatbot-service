@@ -66,6 +66,19 @@ async def resolve_profile_write_node(
     record_id = workflow_data.get("profile_record_id")
     selected_record_id = collected.get("profile_record_id")
     structured_answer = state.get("clarification")
+
+    if (
+        isinstance(structured_answer, dict)
+        and structured_answer.get("answer_type") == "option_select"
+        and structured_answer.get("field")
+        in {
+            "profile_section_key",
+            "profile_resource_key",
+            "profile_field_keys",
+            "profile_record_id",
+        }
+    ):
+        workflow_data["profile_target_resolved"] = True
     if (
         selected_record_id is not None
         and isinstance(structured_answer, dict)

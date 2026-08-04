@@ -6,6 +6,7 @@ from app.routing.capabilities import (
     CAPABILITY_REGISTRY,
     CapabilityResolver,
     ToolResolver,
+    common_capability_names,
 )
 from app.routing.intent_refiner import direct_classify_from_exclusive_hints
 from app.routing.intent_taxonomy import INTENT_DEFINITIONS
@@ -14,6 +15,24 @@ from app.routing.rules import infer_rule_hints
 from app.routing.taxonomy import Intent, Operation, SubjectScope, SubjectType
 from app.tools import build_tool_registry
 from app.tools.definitions import ToolDefinition
+
+
+def test_common_capability_names_filters_profile_intent_by_operation() -> None:
+    assert common_capability_names(
+        (Intent.PROFILE_CONTACT,),
+        Operation.READ,
+    ) == frozenset({"employee_contact_read"})
+
+
+def test_profile_contact_tools_bind_to_read_capability() -> None:
+    registry = build_tool_registry()
+
+    assert registry.get("profile_get_contact").capability_name == (
+        "employee_contact_read"
+    )
+    assert registry.get("employee_get_contact").capability_name == (
+        "employee_contact_read"
+    )
 
 
 @pytest.mark.parametrize(

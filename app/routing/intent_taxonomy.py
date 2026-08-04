@@ -47,7 +47,10 @@ def _definition(intent: Intent) -> IntentDefinition:
             route=QueryRoute.DATA_QUERY,
             operation=Operation.READ,
             supported_scopes=_PROFILE_SCOPES,
-            capability_names=capability_names_for_intent(intent),
+            capability_names=capability_names_for_intent(
+                intent,
+                Operation.READ,
+            ),
         )
     if prefix == "attendance":
         return IntentDefinition(
@@ -72,7 +75,10 @@ def _definition(intent: Intent) -> IntentDefinition:
             ),
             operation=operation,
             supported_scopes=_SELF_SCOPES,
-            capability_names=capability_names_for_intent(intent),
+            capability_names=capability_names_for_intent(
+                intent,
+                operation,
+            ),
         )
     if prefix == "directory":
         scopes = {

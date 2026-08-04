@@ -546,13 +546,18 @@ def capability_names_for_intent(
 
 def common_capability_names(
     intents: Iterable[Intent],
+    operation: Operation | None = None,
 ) -> frozenset[str]:
     intent_list = tuple(intents)
     if not intent_list:
         return frozenset()
-    common = set(capability_names_for_intent(intent_list[0]))
+    common = set(
+        capability_names_for_intent(intent_list[0], operation)
+    )
     for intent in intent_list[1:]:
-        common.intersection_update(capability_names_for_intent(intent))
+        common.intersection_update(
+            capability_names_for_intent(intent, operation)
+        )
     return frozenset(common)
 
 
