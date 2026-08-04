@@ -55,8 +55,8 @@ from app.retrieval.embeddings import OllamaEmbeddingProvider
 from app.retrieval.vector_store import DatabasePgVectorStore
 from app.routing.argument_resolver import ArgumentResolver
 from app.routing.candidate_retriever import CandidateRetriever
-from app.routing.query_classifier import QueryClassifier
 from app.routing.profile_target_resolver import ProfileTargetResolver
+from app.routing.query_classifier import QueryClassifier
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.service import RoutingService
 from app.routing.tool_selector import ToolSelector

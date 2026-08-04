@@ -113,6 +113,26 @@ class OdooClient:
             json=payload,
         )
 
+    async def request_profile_schema(
+        self,
+        path: str,
+        *,
+        request_id: str,
+        response_model: type[ResponseT],
+        params: dict[str, Any],
+    ) -> ResponseT:
+        """Read only a Profile Schema Registry endpoint."""
+        prefix = "/api/hrm-chatbot/v1/profile/schema/"
+        if not path.startswith(prefix):
+            raise ValueError("path is not a profile schema endpoint")
+        return await self._request(
+            "GET",
+            path,
+            request_id=request_id,
+            response_model=response_model,
+            params=params,
+        )
+
     async def _request(
         self,
         method: str,

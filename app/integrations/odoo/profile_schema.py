@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from time import monotonic
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import (
@@ -16,7 +17,7 @@ from app.integrations.odoo.exceptions import (
 from app.routing.taxonomy import Operation
 
 
-class ProfileWriteMode(str):
+class ProfileWriteMode(str, Enum):
     DIRECT = "direct"
     APPROVAL_REQUEST = "approval_request"
     FORBIDDEN = "forbidden"
@@ -66,7 +67,7 @@ class ProfileField(BaseModel):
     deletable: bool
     required_on_create: bool = False
     sensitive: bool = False
-    write_mode: str = ProfileWriteMode.FORBIDDEN
+    write_mode: ProfileWriteMode = ProfileWriteMode.FORBIDDEN
     aliases: tuple[str, ...] = ()
     selection_values: tuple[ProfileOption, ...] = ()
     option_provider: str | None = None
@@ -159,7 +160,12 @@ class ProfileSchemaClient:
 
     SECTIONS_PATH = "/api/hrm-chatbot/v1/profile/schema/sections"
 
-    def __init__(self, odoo_client: OdooClient, *, cache_ttl_seconds: float = 30) -> None:
+    def __init__(
+        self,
+        odoo_client: OdooClient,
+        *,
+        cache_ttl_seconds: float = 30,
+    ) -> None:
         self._odoo = odoo_client
         self._ttl = max(cache_ttl_seconds, 0)
         self._cache: dict[tuple[Any, ...], _CacheEntry] = {}
@@ -223,7 +229,8 @@ class ProfileSchemaClient:
     ) -> tuple[ProfileField, ...]:
         self._validate_key(resource_key)
         result = await self._get(
-            f"{self.SECTIONS_PATH.rsplit('/sections', 1)[0]}/resources/{resource_key}/fields",
+            f"{self.SECTIONS_PATH.rsplit('/sections', 1)[0]}/resources/"
+            f"{resource_key}/fields",
             ProfileFieldList,
             actor=odoo_user_id,
             request_id=request_id,
@@ -276,8 +283,7 @@ class ProfileSchemaClient:
         if cached and cached.expires_at > monotonic():
             return cached.value  # type: ignore[return-value]
         try:
-            result = await self._odoo._request(
-                "GET",
+            result = await self._odoo.request_profile_schema(
                 path,
                 request_id=request_id,
                 response_model=model,

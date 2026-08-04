@@ -42,17 +42,13 @@ _SEMANTIC_RULES = (
             r"\b(?:so ngay )?(?:khong (?:duoc )?phan ca|khong co ca) "
             r"(?:nhung |ma )?(?:co )?(?:di lam|cham cong)\b"
         ),
-        candidate_intents=(
-            Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,
-        ),
+        candidate_intents=(Intent.ATTENDANCE_UNASSIGNED_SHIFT_WORKED_DAYS,),
         confidence=0.99,
         is_exclusive=True,
     ),
     SemanticRule(
         concept="attendance_no_attendance_days",
-        pattern=re.compile(
-            r"\b(?:so ngay )?(?:khong|chua) cham cong\b"
-        ),
+        pattern=re.compile(r"\b(?:so ngay )?(?:khong|chua) cham cong\b"),
         candidate_intents=(Intent.ATTENDANCE_NO_ATTENDANCE_DAYS,),
         confidence=0.99,
         is_exclusive=True,
@@ -177,9 +173,7 @@ _SEMANTIC_RULES = (
     ),
     SemanticRule(
         concept="profile_other_name",
-        pattern=re.compile(
-            r"\b(?:ten goi khac|ten khac|bi danh)\b"
-        ),
+        pattern=re.compile(r"\b(?:ten goi khac|ten khac|bi danh)\b"),
         candidate_intents=(Intent.PROFILE_BASIC,),
         confidence=0.98,
         is_exclusive=True,
@@ -297,11 +291,9 @@ _CREATE = re.compile(
     r"(?:tao|them|bo sung|khai them|dang ky|lap|gui yeu cau)\b",
 )
 _UPDATE = re.compile(r"\b(?:sua|cap nhat|dieu chinh|chinh lai|doi|thay)\b")
-_DELETE = re.compile(r"\b(?:xoa|bo|go)\b")
+_DELETE = re.compile(r"\b(?:xoa|go|bo(?!\s+sung\b))\b")
 _CANCEL = re.compile(r"\b(?:huy|rut)(?:\s+(?:don|yeu cau|chung tu))?\b")
-_LEAVE_CONTEXT = re.compile(
-    r"\b(?:don nghi|nghi phep|xin nghi|phep nam)\b"
-)
+_LEAVE_CONTEXT = re.compile(r"\b(?:don nghi|nghi phep|xin nghi|phep nam)\b")
 _SELF = re.compile(r"\b(?:toi|cua toi)\b")
 _DEPARTMENT = re.compile(r"\b(?:phong|ban|don vi)\s+[a-z0-9]")
 _COMPANY = re.compile(r"\b(?:toan cong ty|cong ty)\b")
@@ -345,20 +337,15 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
         for rule in _SEMANTIC_RULES
         if (match := rule.pattern.search(folded)) is not None
     )
-    acronym_department = _NAMED_DEPARTMENT_ACRONYM.search(
-        normalized.original_text
-    )
+    acronym_department = _NAMED_DEPARTMENT_ACRONYM.search(normalized.original_text)
     if acronym_department is not None and not any(
-        hint.concept == "department_employee_list"
-        for hint in semantic_hints
+        hint.concept == "department_employee_list" for hint in semantic_hints
     ):
         semantic_hints = (
             *semantic_hints,
             SemanticHint(
                 concept="department_employee_list",
-                candidate_intents=(
-                    Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,
-                ),
+                candidate_intents=(Intent.DIRECTORY_DEPARTMENT_EMPLOYEES,),
                 confidence=0.99,
                 matched_text=acronym_department.group(0),
                 is_exclusive=True,
@@ -402,20 +389,13 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
     self_reference = bool(_SELF.search(folded))
     named_reference = bool(
         _NAMED_EMPLOYEE.search(normalized.original_text)
-        or (
-            not self_reference
-            and _ASCII_NAMED_CONTEXT.search(folded)
-        )
+        or (not self_reference and _ASCII_NAMED_CONTEXT.search(folded))
     )
-    department_reference = bool(
-        _DEPARTMENT.search(folded) or acronym_department
-    )
+    department_reference = bool(_DEPARTMENT.search(folded) or acronym_department)
     company_reference = bool(_COMPANY.search(folded))
 
     return RuleHints(
-        route_hint=(
-            RouteType.TRANSACTION if operation is not None else None
-        ),
+        route_hint=(RouteType.TRANSACTION if operation is not None else None),
         domain_hint=domain_signals[0] if len(domain_signals) == 1 else None,
         operation_hint=operation,
         confidence=0.9 if operation is not None else 0.0,

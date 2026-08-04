@@ -78,7 +78,7 @@ def _capability(
 _SELF_EMPLOYEE = (SubjectType.SELF, SubjectType.EMPLOYEE)
 _SELF = (SubjectType.SELF,)
 
-_CAPABILITIES = (
+_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     _capability(
         "employee_basic_read",
         Domain.PROFILE,
@@ -499,6 +499,25 @@ _CAPABILITIES = (
     ),
 )
 
+# Profile write capabilities describe routable business work, even while no
+# execution tool exists. Registry metadata remains the authority for whether a
+# concrete resource/field is writable.
+_PROFILE_WRITE_CAPABILITIES = tuple(
+    _capability(
+        f"employee_{intent.value.split('.', 1)[1]}_{operation.value}",
+        Domain.PROFILE,
+        (intent,),
+        _SELF,
+        f"Resolve profile {operation.value} for the authenticated employee.",
+        operation=operation,
+        risk_level=RiskLevel.WRITE,
+    )
+    for intent in Intent
+    if intent.value.startswith("profile.") and intent is not Intent.PROFILE_CERTIFICATES
+    for operation in (Operation.CREATE, Operation.UPDATE, Operation.DELETE)
+)
+_CAPABILITIES = (*_CAPABILITIES, *_PROFILE_WRITE_CAPABILITIES)
+
 CAPABILITY_REGISTRY: dict[str, CapabilityDefinition] = {
     capability.name: capability for capability in _CAPABILITIES
 }
@@ -521,8 +540,7 @@ def capability_names_for_intent(
     if operation is None:
         return names
     return frozenset(
-        name for name in names
-        if CAPABILITY_REGISTRY[name].operation is operation
+        name for name in names if CAPABILITY_REGISTRY[name].operation is operation
     )
 
 
@@ -543,9 +561,7 @@ class CapabilityResolver:
         self,
         registry: dict[str, CapabilityDefinition] | None = None,
     ) -> None:
-        self._registry = (
-            registry if registry is not None else CAPABILITY_REGISTRY
-        )
+        self._registry = registry if registry is not None else CAPABILITY_REGISTRY
 
     def resolve(
         self,

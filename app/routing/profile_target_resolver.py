@@ -29,7 +29,7 @@ class ProfileTargetResolution(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def hierarchy_is_consistent(self) -> "ProfileTargetResolution":
+    def hierarchy_is_consistent(self) -> ProfileTargetResolution:
         if self.field_keys and self.resource_key is None:
             raise ValueError("resource_key is required when field_keys are set")
         if self.resource_key is not None and self.section_key is None:
@@ -78,12 +78,8 @@ class ProfileTargetResolver:
             "original_query": original_query,
             "intent": intent.value,
             "operation": operation.value,
-            "candidate_sections": [
-                item.model_dump(mode="json") for item in sections
-            ],
-            "candidate_resources": [
-                item.model_dump(mode="json") for item in resources
-            ],
+            "candidate_sections": [item.model_dump(mode="json") for item in sections],
+            "candidate_resources": [item.model_dump(mode="json") for item in resources],
         }
         try:
             result = await self._llm.complete_structured(

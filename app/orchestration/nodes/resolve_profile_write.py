@@ -19,12 +19,10 @@ from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState, ChatResponseType
 from app.routing.profile_target_resolver import (
     ProfileTargetOutsideAllowlistError,
-    ProfileTargetResolution,
     ProfileTargetResolverError,
 )
 from app.routing.schemas import QueryClassification
 from app.routing.taxonomy import Operation
-
 
 PROFILE_WORKFLOW = "profile_crud_workflow"
 
@@ -65,6 +63,19 @@ async def resolve_profile_write_node(
         field_keys = [str(selected_field)]
     record_reference = workflow_data.get("profile_record_reference")
     record_id = workflow_data.get("profile_record_id")
+    selected_record_id = collected.get("profile_record_id")
+    structured_answer = state.get("clarification")
+    if (
+        selected_record_id is not None
+        and isinstance(structured_answer, dict)
+        and structured_answer.get("answer_type") == "option_select"
+    ):
+        try:
+            record_id = int(selected_record_id)
+        except (TypeError, ValueError):
+            record_id = None
+        else:
+            workflow_data["profile_record_id"] = record_id
     changes = dict(workflow_data.get("profile_changes", {}))
     for key in field_keys:
         if key in collected:
@@ -189,7 +200,7 @@ async def resolve_profile_write_node(
         if resource.section_key != section_key:
             raise ProfileTargetOutsideAllowlistError()
         if not resource.allows(operation):
-            return _forbidden(state, started, resource.label)
+            return _forbidden(state, started, "")
 
         selected_fields = [
             field for field in resource.fields if field.key in field_keys
@@ -204,13 +215,18 @@ async def resolve_profile_write_node(
             return _forbidden(
                 state,
                 started,
-                forbidden_field.description or forbidden_field.label,
+                forbidden_field.description or "",
             )
 
-        if resource.resource_type == "collection" and operation in {
-            Operation.UPDATE,
-            Operation.DELETE,
-        } and record_id is None:
+        if (
+            resource.resource_type == "collection"
+            and operation
+            in {
+                Operation.UPDATE,
+                Operation.DELETE,
+            }
+            and record_id is None
+        ):
             return await _clarification(
                 state,
                 runtime,
@@ -276,7 +292,9 @@ async def resolve_profile_write_node(
                     text="Bạn muốn sửa thông tin nào?",
                     options=_options(operation_fields),
                 )
-            missing_values = [field for field in selected_fields if field.key not in changes]
+            missing_values = [
+                field for field in selected_fields if field.key not in changes
+            ]
             if missing_values:
                 return await _clarify_value(
                     state,
@@ -317,7 +335,8 @@ async def resolve_profile_write_node(
             state,
             started,
             "PROFILE_WRITE_EXECUTION_NOT_IMPLEMENTED",
-            "Đã thu thập đủ thông tin, nhưng chức năng gửi thay đổi hồ sơ chưa được triển khai.",
+            "Đã thu thập đủ thông tin, nhưng chức năng gửi thay đổi "
+            "hồ sơ chưa được triển khai.",
             CapabilityOutcome.UNSUPPORTED,
             workflow_data=workflow_data,
         )
@@ -395,14 +414,26 @@ async def _clarify_value(
     *,
     missing_profile_slots: list[str],
 ) -> dict[str, object]:
+    current_mode = workflow_data.get("profile_write_mode")
+    workflow_data = {
+        **workflow_data,
+        "profile_write_mode": (
+            ProfileWriteMode.APPROVAL_REQUEST
+            if field.write_mode is ProfileWriteMode.APPROVAL_REQUEST
+            or current_mode == ProfileWriteMode.APPROVAL_REQUEST
+            else ProfileWriteMode.DIRECT
+        ),
+    }
     options: list[dict[str, str | None]] = []
     input_type = input_type_for_field(field)
     if input_type in {"single_select", "searchable_select"}:
-        registry_options = await runtime.context.profile_schema_client.get_field_options(
-            resource.key,
-            field.key,
-            odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
-            request_id=state["request_id"],
+        registry_options = await (
+            runtime.context.profile_schema_client.get_field_options(
+                resource.key,
+                field.key,
+                odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
+                request_id=state["request_id"],
+            )
         )
         options = _options(registry_options)
     return await _clarification(
@@ -453,6 +484,7 @@ async def _clarification(
         write_mode=workflow_data.get("profile_write_mode"),
         missing_profile_slots=missing_profile_slots or [slot_name],
     )
+    profile_data["profile_record_id"] = workflow_data.get("profile_record_id")
     clarification: dict[str, Any] = {
         "input_type": input_type,
         "slot_name": slot_name,
@@ -487,6 +519,8 @@ async def _clarification(
         "text": text,
         "clarification": clarification,
     }
+    if workflow_data.get("profile_resolution_error"):
+        response_data["error_code"] = workflow_data["profile_resolution_error"]
     update = stage_update(
         state,
         event="profile_clarification_required",

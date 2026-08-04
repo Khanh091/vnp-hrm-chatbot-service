@@ -2,7 +2,6 @@ import json
 
 from app.routing.schemas import NormalizedQuery, RuleHints
 
-
 QUERY_CLASSIFIER_SYSTEM_PROMPT = """
 Bạn phân loại yêu cầu tiếng Việt cho chatbot HRM. Chỉ trả JSON đúng schema.
 

@@ -34,12 +34,18 @@ async def load_conversation_node(
             "profile_section_key": item.workflow_data.get("profile_section_key"),
             "profile_resource_key": item.workflow_data.get("profile_resource_key"),
             "profile_field_keys": item.workflow_data.get("profile_field_keys", []),
-            "profile_record_reference": item.workflow_data.get("profile_record_reference"),
+            "profile_record_reference": item.workflow_data.get(
+                "profile_record_reference"
+            ),
             "profile_record_id": item.workflow_data.get("profile_record_id"),
             "profile_write_mode": item.workflow_data.get("profile_write_mode"),
-            "profile_current_snapshot": item.workflow_data.get("profile_current_snapshot", {}),
+            "profile_current_snapshot": item.workflow_data.get(
+                "profile_current_snapshot", {}
+            ),
             "profile_changes": item.workflow_data.get("profile_changes", {}),
-            "missing_profile_slots": item.workflow_data.get("missing_profile_slots", []),
+            "missing_profile_slots": item.workflow_data.get(
+                "missing_profile_slots", []
+            ),
             "entity_memory": item.entity_memory,
         }
     )
