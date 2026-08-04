@@ -16,6 +16,7 @@ class Operation(str, Enum):
     READ = "read"
     CREATE = "create"
     UPDATE = "update"
+    DELETE = "delete"
     CANCEL = "cancel"
     NONE = "none"
 

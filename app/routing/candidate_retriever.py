@@ -76,6 +76,7 @@ class CandidateRetriever:
                 capabilities = self._capability_resolver.resolve(
                     intent=classification.intent,
                     subject_type=subject_type,
+                    operation=classification.operation,
                 )
                 resolved_tools = []
                 missing_tool = False

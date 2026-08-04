@@ -88,7 +88,7 @@ class QueryClassifier:
         original_intent = result.intent
         subject = EntityResolver().extract_subject(query.original_text)
         try:
-            repaired = repair_classification(result, subject)
+            repaired = repair_classification(result, subject, hints)
         except RoutingCanonicalizationError as error:
             logger.warning(
                 "query_classification_failed reason_code=%s "
@@ -117,6 +117,7 @@ class QueryClassifier:
         # A strong explicit write signal cannot safely be downgraded to a read.
         if (
             hints.operation_hint is not None
+            and hints.operation_hint.value in {"create", "update", "delete"}
             and result.route.value != "task"
         ):
             logger.warning(

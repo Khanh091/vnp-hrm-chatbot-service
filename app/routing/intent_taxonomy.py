@@ -163,6 +163,12 @@ def canonicalize_classification(
     if classification.intent is None:
         return classification
     definition = INTENT_DEFINITIONS[classification.intent]
+    is_profile = classification.intent.value.startswith("profile.")
+    profile_write = is_profile and classification.operation in {
+        Operation.CREATE,
+        Operation.UPDATE,
+        Operation.DELETE,
+    }
     subject_scope = scope_from_subject(subject)
     scope = classification.scope
     reason_code = "LLM_CLASSIFICATION"
@@ -176,18 +182,25 @@ def canonicalize_classification(
             reason_code = "SCOPE_REPAIRED_FROM_SUBJECT"
         else:
             raise RoutingCanonicalizationError("ROUTING_SCOPE_NOT_SUPPORTED")
+    canonical_route = QueryRoute.TASK if profile_write else definition.route
+    canonical_operation = (
+        classification.operation if profile_write else definition.operation
+    )
+    if profile_write:
+        scope = SubjectScope.SELF
     canonical_fields_changed = (
         classification.domain is not definition.domain
-        or classification.route is not definition.route
-        or classification.operation is not definition.operation
+        or classification.route is not canonical_route
+        or classification.operation is not canonical_operation
+        or (profile_write and classification.scope is not SubjectScope.SELF)
     )
     if canonical_fields_changed and reason_code != "SCOPE_REPAIRED_FROM_SUBJECT":
         reason_code = "TAXONOMY_CANONICALIZED"
     return classification.model_copy(
         update={
             "domain": definition.domain,
-            "route": definition.route,
-            "operation": definition.operation,
+            "route": canonical_route,
+            "operation": canonical_operation,
             "scope": scope,
             "reason_code": reason_code,
         }

@@ -70,8 +70,13 @@ async def merge_clarification_node(
             "response_text": public_outcome_message(outcome),
             "response_data": None,
         }
-    tool = runtime.context.tool_registry.get(tool_name)
-    if not tool.enabled:
+    is_profile_workflow = tool_name == "profile_crud_workflow"
+    tool = (
+        None
+        if is_profile_workflow
+        else runtime.context.tool_registry.get(tool_name)
+    )
+    if tool is not None and not tool.enabled:
         outcome = CapabilityOutcome.UNSUPPORTED
         await runtime.context.conversation_service.clear_workflow(
             state["conversation_id"],

@@ -74,6 +74,15 @@ class ChatGraphState(TypedDict, total=False):
     missing_arguments: list[str]
     ambiguous_arguments: list[str]
     workflow_data: dict[str, Any]
+    profile_section_key: str | None
+    profile_resource_key: str | None
+    profile_field_keys: list[str]
+    profile_record_reference: str | None
+    profile_record_id: int | None
+    profile_write_mode: str | None
+    profile_current_snapshot: dict[str, Any]
+    profile_changes: dict[str, Any]
+    missing_profile_slots: list[str]
     entity_memory: dict[str, Any]
     pending_action_id: str | None
     pending_action: dict[str, Any]

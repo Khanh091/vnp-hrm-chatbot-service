@@ -415,6 +415,33 @@ _CAPABILITIES = (
         risk_level=RiskLevel.WRITE,
     ),
     _capability(
+        "employee_certificate_create",
+        Domain.PROFILE,
+        (Intent.PROFILE_CERTIFICATES,),
+        _SELF,
+        "Tạo bản ghi chứng chỉ hồ sơ tự khai.",
+        operation=Operation.CREATE,
+        risk_level=RiskLevel.WRITE,
+    ),
+    _capability(
+        "employee_certificate_update",
+        Domain.PROFILE,
+        (Intent.PROFILE_CERTIFICATES,),
+        _SELF,
+        "Cập nhật bản ghi chứng chỉ hồ sơ tự khai.",
+        operation=Operation.UPDATE,
+        risk_level=RiskLevel.WRITE,
+    ),
+    _capability(
+        "employee_certificate_delete",
+        Domain.PROFILE,
+        (Intent.PROFILE_CERTIFICATES,),
+        _SELF,
+        "Xóa bản ghi chứng chỉ hồ sơ tự khai.",
+        operation=Operation.DELETE,
+        risk_level=RiskLevel.WRITE,
+    ),
+    _capability(
         "employee_directory_search",
         Domain.DIRECTORY,
         (Intent.DIRECTORY_EMPLOYEE_SEARCH,),
@@ -486,8 +513,17 @@ _INTENT_CAPABILITIES: dict[Intent, frozenset[str]] = {
 }
 
 
-def capability_names_for_intent(intent: Intent) -> frozenset[str]:
-    return _INTENT_CAPABILITIES[intent]
+def capability_names_for_intent(
+    intent: Intent,
+    operation: Operation | None = None,
+) -> frozenset[str]:
+    names = _INTENT_CAPABILITIES[intent]
+    if operation is None:
+        return names
+    return frozenset(
+        name for name in names
+        if CAPABILITY_REGISTRY[name].operation is operation
+    )
 
 
 def common_capability_names(
@@ -516,10 +552,11 @@ class CapabilityResolver:
         *,
         intent: Intent | None,
         subject_type: SubjectType,
+        operation: Operation = Operation.READ,
     ) -> list[CapabilityDefinition]:
         if intent is None:
             raise IntentNotRecognizedError()
-        names = capability_names_for_intent(intent)
+        names = capability_names_for_intent(intent, operation)
         if not names:
             raise NoCapabilityForIntentError()
         capabilities = [

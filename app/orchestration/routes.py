@@ -40,12 +40,16 @@ def route_after_selection(
 
 def route_after_classification(
     state: ChatGraphState,
-) -> Literal["retrieve_candidates", "format_response"]:
-    return (
-        "format_response"
-        if state.get("response_type") is not None
-        else "retrieve_candidates"
-    )
+) -> Literal["resolve_profile_write", "retrieve_candidates", "format_response"]:
+    if state.get("response_type") is not None:
+        return "format_response"
+    classification = state.get("classification", {})
+    if (
+        classification.get("domain") == "profile"
+        and classification.get("operation") in {"create", "update", "delete"}
+    ):
+        return "resolve_profile_write"
+    return "retrieve_candidates"
 
 
 def route_after_retrieval(
@@ -60,12 +64,12 @@ def route_after_retrieval(
 
 def route_after_clarification_merge(
     state: ChatGraphState,
-) -> Literal["resolve_arguments", "format_response"]:
-    return (
-        "format_response"
-        if state.get("response_type") is not None
-        else "resolve_arguments"
-    )
+) -> Literal["resolve_profile_write", "resolve_arguments", "format_response"]:
+    if state.get("response_type") is not None:
+        return "format_response"
+    if state.get("pending_tool_name") == "profile_crud_workflow":
+        return "resolve_profile_write"
+    return "resolve_arguments"
 
 
 def route_after_argument_resolution(

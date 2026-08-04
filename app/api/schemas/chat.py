@@ -72,6 +72,38 @@ class ClarificationAnswer(BaseModel):
 ChatClarification = ClarificationAnswer
 
 
+class ClarificationInputType(str, Enum):
+    SECTION_SELECT = "section_select"
+    RESOURCE_SELECT = "resource_select"
+    FIELD_SELECT = "field_select"
+    RECORD_SELECT = "record_select"
+    SINGLE_SELECT = "single_select"
+    SEARCHABLE_SELECT = "searchable_select"
+    DATE = "date"
+    BOOLEAN = "boolean"
+    TEXT = "text"
+    NUMBER = "number"
+
+
+class ClarificationOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    description: str | None = None
+
+
+class ClarificationContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_type: ClarificationInputType
+    slot_name: str
+    options: list[ClarificationOption] | None = None
+    min_date: date | None = None
+    max_date: date | None = None
+    initial_date: date | None = None
+
+
 class StructuredAnswerType(str, Enum):
     OPTION_SELECT = "option_select"
     DATE_SELECT = "date_select"

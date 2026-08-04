@@ -294,10 +294,11 @@ _SEMANTIC_RULES = (
 
 _CREATE = re.compile(
     r"(?:^|\b(?:hay|giup toi|toi muon|toi)\s+)"
-    r"(?:tao|dang ky|lap|gui yeu cau)\b",
+    r"(?:tao|them|bo sung|khai them|dang ky|lap|gui yeu cau)\b",
 )
-_UPDATE = re.compile(r"\b(?:sua|cap nhat|dieu chinh|doi)\b")
-_CANCEL = re.compile(r"\b(?:huy|rut yeu cau|xoa bo)\b")
+_UPDATE = re.compile(r"\b(?:sua|cap nhat|dieu chinh|chinh lai|doi|thay)\b")
+_DELETE = re.compile(r"\b(?:xoa|bo|go)\b")
+_CANCEL = re.compile(r"\b(?:huy|rut)(?:\s+(?:don|yeu cau|chung tu))?\b")
 _LEAVE_CONTEXT = re.compile(
     r"\b(?:don nghi|nghi phep|xin nghi|phep nam)\b"
 )
@@ -372,9 +373,12 @@ def infer_rule_hints(query: NormalizedQuery | str) -> RuleHints:
 
     operation: Operation | None = None
     reason_code: str | None = None
-    if _CANCEL.search(folded):
+    if _CANCEL.search(folded) and _LEAVE_CONTEXT.search(folded):
         operation = Operation.CANCEL
         reason_code = "EXPLICIT_CANCEL_ACTION"
+    elif _DELETE.search(folded):
+        operation = Operation.DELETE
+        reason_code = "EXPLICIT_DELETE_ACTION"
     elif _UPDATE.search(folded):
         operation = Operation.UPDATE
         reason_code = "EXPLICIT_UPDATE_ACTION"

@@ -41,6 +41,7 @@ from app.context.subject_resolver import (
 )
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import OdooError
+from app.integrations.odoo.profile_schema import ProfileSchemaClient
 from app.llm.client import (
     GroqLlmClient,
     OllamaLlmClient,
@@ -55,6 +56,7 @@ from app.retrieval.vector_store import DatabasePgVectorStore
 from app.routing.argument_resolver import ArgumentResolver
 from app.routing.candidate_retriever import CandidateRetriever
 from app.routing.query_classifier import QueryClassifier
+from app.routing.profile_target_resolver import ProfileTargetResolver
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.service import RoutingService
 from app.routing.tool_selector import ToolSelector
@@ -171,6 +173,10 @@ def create_app(
             graph_context = GraphContext(
                 query_normalizer=query_normalizer,
                 query_classifier=query_classifier,
+                profile_schema_client=ProfileSchemaClient(
+                    application.state.odoo_client
+                ),
+                profile_target_resolver=ProfileTargetResolver(llm_client),
                 candidate_retriever=candidate_retriever,
                 tool_selector=selector,
                 argument_resolver=argument_resolver,

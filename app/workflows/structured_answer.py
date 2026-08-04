@@ -64,7 +64,10 @@ def validate_structured_selection(
             raise InvalidStructuredSelection
         business_value: str | date = str(value)
     else:
-        if field not in DATE_SLOT_NAMES:
+        if (
+            field not in DATE_SLOT_NAMES
+            and (metadata or {}).get("input_type") != "date"
+        ):
             raise InvalidStructuredSelection
         try:
             selected_date = date.fromisoformat(str(value))

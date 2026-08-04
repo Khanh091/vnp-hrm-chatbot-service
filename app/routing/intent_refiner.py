@@ -92,7 +92,17 @@ def direct_classify_from_exclusive_hints(
 def repair_classification(
     classification: QueryClassification,
     subject: SubjectMention,
+    hints: RuleHints | None = None,
 ) -> QueryClassification:
+    if (
+        hints is not None
+        and hints.operation_hint is not None
+        and classification.intent is not None
+        and classification.intent.value.startswith("profile.")
+    ):
+        classification = classification.model_copy(
+            update={"operation": hints.operation_hint}
+        )
     return canonicalize_classification(classification, subject)
 
 

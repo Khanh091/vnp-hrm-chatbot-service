@@ -13,6 +13,7 @@ from app.context.subject_resolver import SubjectResolver
 from app.routing.argument_resolver import ArgumentResolver
 from app.routing.candidate_retriever import CandidateRetriever
 from app.routing.query_classifier import QueryClassifier
+from app.routing.profile_target_resolver import ProfileTargetResolver
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.tool_selector import ToolSelector
 from app.routing.validator import ToolSelectionValidator
@@ -22,12 +23,15 @@ from app.tools.registry import ToolRegistry
 from app.tools.response_formatter import ToolResponseFormatter
 from app.workflows.registry import WorkflowRegistry
 from app.workflows.slot_manager import SlotManager
+from app.integrations.odoo.profile_schema import ProfileSchemaClient
 
 
 @dataclass(frozen=True)
 class GraphContext:
     query_normalizer: QueryNormalizer
     query_classifier: QueryClassifier
+    profile_schema_client: ProfileSchemaClient
+    profile_target_resolver: ProfileTargetResolver
     candidate_retriever: CandidateRetriever
     tool_selector: ToolSelector
     argument_resolver: ArgumentResolver

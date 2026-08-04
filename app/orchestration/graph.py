@@ -39,6 +39,7 @@ from app.orchestration.nodes.persist_conversation import (
     persist_conversation_node,
 )
 from app.orchestration.nodes.resolve_arguments import resolve_arguments_node
+from app.orchestration.nodes.resolve_profile_write import resolve_profile_write_node
 from app.orchestration.nodes.retrieve_candidates import (
     retrieve_candidates_node,
 )
@@ -75,6 +76,7 @@ def build_chat_graph(checkpointer: Any = None) -> Any:
     builder.add_node("select_tool", select_tool_node)
     builder.add_node("merge_clarification", merge_clarification_node)
     builder.add_node("resolve_arguments", resolve_arguments_node)
+    builder.add_node("resolve_profile_write", resolve_profile_write_node)
     builder.add_node("validate_selection", validate_selection_node)
     builder.add_node("ask_clarification", ask_clarification_node)
     builder.add_node("create_confirmation", create_confirmation_node)
@@ -122,6 +124,7 @@ def build_chat_graph(checkpointer: Any = None) -> Any:
     )
     for node in (
         "ask_clarification",
+        "resolve_profile_write",
         "create_confirmation",
         "cancel_pending_action",
         "execute_read_tool",
@@ -176,6 +179,15 @@ class ChatGraphWorkflow:
             "missing_arguments": [],
             "ambiguous_arguments": [],
             "workflow_data": {},
+            "profile_section_key": None,
+            "profile_resource_key": None,
+            "profile_field_keys": [],
+            "profile_record_reference": None,
+            "profile_record_id": None,
+            "profile_write_mode": None,
+            "profile_current_snapshot": {},
+            "profile_changes": {},
+            "missing_profile_slots": [],
             "entity_memory": {},
             "pending_action": {},
             "tool_result": None,
