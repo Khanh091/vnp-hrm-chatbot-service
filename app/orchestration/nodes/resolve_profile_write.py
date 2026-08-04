@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from time import perf_counter
 from typing import Any
 
@@ -76,6 +77,10 @@ async def resolve_profile_write_node(
             record_id = None
         else:
             workflow_data["profile_record_id"] = record_id
+    elif isinstance(selected_record_id, str) and selected_record_id.strip():
+        # A free-text follow-up is treated as a reference, never as an ORM id.
+        record_reference = selected_record_id.strip()
+        workflow_data["profile_record_reference"] = record_reference
     changes = dict(workflow_data.get("profile_changes", {}))
     for key in field_keys:
         if key in collected:
@@ -220,34 +225,31 @@ async def resolve_profile_write_node(
 
         if (
             resource.resource_type == "collection"
-            and operation
-            in {
-                Operation.UPDATE,
-                Operation.DELETE,
-            }
+            and operation in {Operation.UPDATE, Operation.DELETE}
             and record_id is None
         ):
-            return await _clarification(
-                state,
-                runtime,
-                started,
-                classification,
-                operation,
-                workflow_data,
-                section_key=str(section_key),
-                resource_key=resource.key,
-                field_keys=field_keys,
-                record_reference=record_reference,
-                changes=changes,
-                slot_name="profile_record_id",
-                input_type="record_select",
-                text=(
-                    f"Bạn muốn chọn dòng {record_reference} nào?"
-                    if record_reference
-                    else f"Bạn muốn chọn dòng {resource.label} nào?"
-                ),
-                options=[],
+            records = await schema.list_records(
+                resource.key, odoo_user_id=actor, request_id=request_id
             )
+            candidates = _match_records(records, record_reference)
+            if not candidates:
+                return _typed_error(
+                    state, started, "PROFILE_RECORD_NOT_FOUND",
+                    "Không tìm thấy dòng hồ sơ phù hợp.", CapabilityOutcome.EMPTY,
+                )
+            if len(candidates) == 1:
+                record_id = candidates[0].record_id
+                workflow_data["profile_record_id"] = record_id
+            else:
+                return await _clarification(
+                    state, runtime, started, classification, operation, workflow_data,
+                    section_key=str(section_key), resource_key=resource.key,
+                    field_keys=field_keys, record_reference=record_reference,
+                    changes=changes, slot_name="profile_record_id",
+                    input_type="record_select",
+                    text="Có nhiều dòng phù hợp. Bạn muốn chọn dòng nào?",
+                    options=_record_options(candidates),
+                )
 
         operation_fields = await schema.get_fields(
             resource.key,
@@ -311,7 +313,9 @@ async def resolve_profile_write_node(
                     missing_profile_slots=[item.key for item in missing_values],
                 )
 
-        relevant_fields = selected_fields or list(operation_fields)
+        relevant_fields = (
+            selected_fields or list(operation_fields) or list(resource.fields)
+        )
         write_mode = (
             ProfileWriteMode.APPROVAL_REQUEST
             if any(
@@ -320,25 +324,51 @@ async def resolve_profile_write_node(
             )
             else ProfileWriteMode.DIRECT
         )
-        workflow_data.update(
-            _profile_data(
-                section_key=str(section_key),
-                resource_key=resource.key,
-                field_keys=field_keys,
-                record_reference=record_reference,
-                changes=changes,
-                write_mode=write_mode,
-                missing_profile_slots=[],
+        current_snapshot: dict[str, Any] = {}
+        expected_version: str | None = None
+        if operation is Operation.UPDATE:
+            current = (
+                await schema.get_current_snapshot(
+                    resource.key, odoo_user_id=actor, request_id=request_id
+                )
+                if resource.resource_type == "singleton"
+                else await schema.get_record(
+                    resource.key, int(record_id), odoo_user_id=actor,
+                    request_id=request_id,
+                )
             )
+            current_snapshot = dict(current.snapshot)
+            expected_version = current.version
+            changes = {
+                key: value for key, value in changes.items()
+                if not _same_value(current_snapshot.get(key), value)
+            }
+            if not changes:
+                return _typed_error(
+                    state, started, "PROFILE_INVALID_VALUE",
+                    "Giá trị mới không khác thông tin hiện tại.",
+                    CapabilityOutcome.INVALID,
+                )
+        elif operation is Operation.DELETE:
+            current = await schema.get_record(
+                resource.key, int(record_id), odoo_user_id=actor,
+                request_id=request_id,
+            )
+            current_snapshot = dict(current.snapshot)
+            expected_version = current.version
+
+        profile_data = _profile_data(
+            section_key=str(section_key), resource_key=resource.key,
+            field_keys=field_keys, record_reference=record_reference,
+            changes=changes, write_mode=write_mode, missing_profile_slots=[],
         )
-        return _typed_error(
-            state,
-            started,
-            "PROFILE_WRITE_EXECUTION_NOT_IMPLEMENTED",
-            "Đã thu thập đủ thông tin, nhưng chức năng gửi thay đổi "
-            "hồ sơ chưa được triển khai.",
-            CapabilityOutcome.UNSUPPORTED,
-            workflow_data=workflow_data,
+        profile_data["profile_record_id"] = record_id
+        profile_data["profile_current_snapshot"] = current_snapshot
+        workflow_data.update(profile_data)
+        return await _create_profile_confirmation(
+            state, runtime, started, classification, resource, operation,
+            selected_fields, record_id, current_snapshot, expected_version,
+            changes, write_mode, workflow_data,
         )
     except ProfileTargetOutsideAllowlistError:
         return _typed_error(
@@ -349,13 +379,234 @@ async def resolve_profile_write_node(
             CapabilityOutcome.INVALID,
         )
     except ProfileSchemaError as error:
+        error_texts = {
+            "PROFILE_RESOURCE_NOT_FOUND": "Không tìm thấy nhóm hồ sơ.",
+            "PROFILE_RECORD_NOT_FOUND": (
+                "Không tìm thấy dòng hồ sơ thuộc tài khoản hiện tại."
+            ),
+            "PROFILE_OPERATION_FORBIDDEN": (
+                "Bạn không được phép thực hiện thao tác này."
+            ),
+            "PROFILE_FIELD_NOT_WRITABLE": "Trường hồ sơ này không thể thay đổi.",
+            "PROFILE_INVALID_VALUE": "Giá trị hồ sơ không hợp lệ.",
+            "PROFILE_RECORD_CHANGED": "Dòng hồ sơ đã thay đổi; vui lòng kiểm tra lại.",
+        }
+        outcome = (
+            CapabilityOutcome.NOT_FOUND
+            if error.reason_code
+            in {"PROFILE_RESOURCE_NOT_FOUND", "PROFILE_RECORD_NOT_FOUND"}
+            else CapabilityOutcome.DENIED
+            if error.reason_code
+            in {"PROFILE_OPERATION_FORBIDDEN", "PROFILE_SCHEMA_ACCESS_DENIED"}
+            else CapabilityOutcome.INVALID
+        )
         return _typed_error(
             state,
             started,
             error.reason_code,
-            "Không thể tải cấu trúc hồ sơ cho tài khoản hiện tại.",
-            CapabilityOutcome.DENIED,
+            error_texts.get(
+                error.reason_code,
+                "Không thể thực hiện thao tác hồ sơ.",
+            ),
+            outcome,
         )
+
+
+async def _create_profile_confirmation(
+    state: ChatGraphState,
+    runtime: Runtime[GraphContext],
+    started: float,
+    classification: QueryClassification,
+    resource: ProfileResource,
+    operation: Operation,
+    selected_fields: list[ProfileField],
+    record_id: int | None,
+    current_snapshot: dict[str, Any],
+    expected_version: str | None,
+    changes: dict[str, Any],
+    write_mode: ProfileWriteMode,
+    workflow_data: dict[str, Any],
+) -> dict[str, object]:
+    trusted = state["trusted_context"]
+    arguments = {
+        "intent": classification.intent.value,
+        "operation": operation.value,
+        "resource_key": resource.key,
+        "record_id": record_id,
+        "current_snapshot": current_snapshot,
+        "expected_version": expected_version,
+        "changes": changes,
+        "write_mode": write_mode.value,
+    }
+    arguments = {key: value for key, value in arguments.items() if value is not None}
+    summary = []
+    for definition in selected_fields:
+        if definition.key in changes:
+            summary.append({
+                "label": definition.label,
+                "old_value": _display_value(current_snapshot.get(definition.key)),
+                "new_value": _display_value(changes[definition.key]),
+            })
+    if operation is Operation.CREATE:
+        fields_by_key = {field.key: field for field in resource.fields}
+        summary = [
+            {"label": fields_by_key[key].label, "old_value": None,
+             "new_value": _display_value(value)}
+            for key, value in changes.items() if key in fields_by_key
+        ]
+    elif operation is Operation.DELETE:
+        summary = [{
+            "label": resource.label,
+            "old_value": _display_value(
+                current_snapshot.get(resource.record_label_field or "")
+            ) or f"#{record_id}",
+            "new_value": None,
+        }]
+    action = await runtime.context.pending_action_service.create(
+        conversation_id=state["conversation_id"],
+        odoo_user_id=int(trusted["odoo_user_id"]),
+        tool_name=PROFILE_WORKFLOW,
+        tool_version="1.0",
+        validated_arguments=arguments,
+        display_summary={"summary": summary, "workflow_data": workflow_data},
+    )
+    conversation = await runtime.context.conversation_service.load_owned(
+        state["conversation_id"], int(trusted["odoo_user_id"])
+    )
+    await runtime.context.conversation_service.update(
+        conversation,
+        status=ConversationStatus.AWAITING_CONFIRMATION,
+        pending_tool_name=PROFILE_WORKFLOW,
+        workflow_data={"pending_action_id": action.action_id},
+    )
+    approval = write_mode is ProfileWriteMode.APPROVAL_REQUEST
+    action_label = {
+        Operation.CREATE: "thêm",
+        Operation.UPDATE: "cập nhật",
+        Operation.DELETE: "xóa",
+    }[operation]
+    confirm_label = (
+        "Gửi yêu cầu điều chỉnh" if approval
+        else "Xác nhận xóa" if operation is Operation.DELETE
+        else f"Xác nhận {action_label}"
+    )
+    cancel_label = "Không xóa" if operation is Operation.DELETE else "Hủy"
+    text = (
+        "Bạn có xác nhận gửi yêu cầu điều chỉnh không?"
+        if approval else f"Bạn có xác nhận {action_label} thông tin không?"
+    )
+    confirmation = {
+        "action_id": action.action_id,
+        "action": operation.value,
+        "title": (
+            "Xác nhận gửi yêu cầu điều chỉnh"
+            if approval else f"{action_label.capitalize()} {resource.label}"
+        ),
+        "summary": summary,
+        "confirm_label": confirm_label,
+        "cancel_label": cancel_label,
+        "expires_at": action.expires_at.isoformat(),
+    }
+    update = stage_update(
+        state, event="profile_confirmation_required",
+        timing_name="pending_action_ms", started=started,
+        data={"action_id": action.action_id, "operation": operation.value},
+    )
+    update.update({
+        **workflow_data,
+        "pending_action_id": action.action_id,
+        "pending_tool_name": PROFILE_WORKFLOW,
+        "workflow_data": workflow_data,
+        "response_type": ChatResponseType.CONFIRMATION_REQUIRED,
+        "response_text": text,
+        "response_data": {
+            "message_type": "confirmation",
+            "text": text,
+            "confirmation": confirmation,
+        },
+    })
+    return update
+
+
+def _match_records(records: tuple[Any, ...], reference: str | None) -> list[Any]:
+    if not records:
+        return []
+    normalized = _normalized(reference or "")
+    if not normalized:
+        return list(records)
+    recency_tokens = ("dong dau tien", "ban gan nhat", "moi nhat")
+    if any(token in normalized for token in recency_tokens):
+        return [records[0]]
+    words = [word for word in normalized.split() if word not in {
+        "sua", "xoa", "chung", "chi", "dong", "ban", "cap", "ngay"
+    }]
+    matches = []
+    for record in records:
+        snapshot_values = " ".join(
+            _display_value(value) for value in record.snapshot.values()
+        )
+        date_aliases = " ".join(
+            _date_aliases(value) for value in record.snapshot.values()
+        )
+        haystack = _normalized(
+            " ".join(
+                filter(
+                    None,
+                    [
+                        record.label,
+                        record.description or "",
+                        snapshot_values,
+                        date_aliases,
+                    ],
+                )
+            )
+        )
+        all_words_match = words and all(word in haystack for word in words)
+        if normalized in haystack or all_words_match:
+            matches.append(record)
+    return matches
+
+
+def _record_options(records: list[Any]) -> list[dict[str, Any]]:
+    return [{"value": str(item.record_id), "label": item.label,
+             "description": item.description} for item in records]
+
+
+def _date_aliases(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    parts = value[:10].split("-")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return ""
+    year, month, day = (int(part) for part in parts)
+    return f"{day}/{month} {day:02d}/{month:02d} {day}/{month}/{year}"
+
+
+def _normalized(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", str(value).casefold())
+    return " ".join(
+        "".join(character for character in decomposed
+                if unicodedata.category(character) != "Mn")
+        .replace("đ", "d").replace("·", " ").split()
+    )
+
+
+def _display_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("label") or value.get("value") or "")
+    if isinstance(value, list):
+        return ", ".join(_display_value(item) for item in value)
+    return "" if value is None else str(value)
+
+
+def _same_value(current: Any, proposed: Any) -> bool:
+    if isinstance(current, dict):
+        current = current.get("value")
+    if isinstance(proposed, dict):
+        proposed = proposed.get("value")
+    return str(current if current is not None else "") == str(
+        proposed if proposed is not None else ""
+    )
 
 
 async def _clarify_section(

@@ -87,7 +87,9 @@ class PendingActionService:
             else:
                 return item
         if expired:
-            raise PendingActionError("ACTION_EXPIRED")
+            raise PendingActionError(
+                self._profile_pending_code(item.tool_name, "ACTION_EXPIRED")
+            )
         raise PendingActionError("ACTION_NOT_FOUND")
 
     async def claim_execution(
@@ -143,7 +145,7 @@ class PendingActionService:
             if expired:
                 confirmed = None
             else:
-                self._raise_terminal_status(current.status)
+                self._raise_terminal_status(current.status, current.tool_name)
                 confirmed = await self._repository.transition(
                 session,
                 action_id=action_id,
@@ -170,7 +172,9 @@ class PendingActionService:
                 raise PendingActionError("ACTION_EXECUTION_IN_PROGRESS")
             if executing is not None:
                 return executing
-        raise PendingActionError("ACTION_EXPIRED")
+        raise PendingActionError(
+            self._profile_pending_code(current.tool_name, "ACTION_EXPIRED")
+        )
 
     async def cancel(
         self,
@@ -285,7 +289,7 @@ class PendingActionService:
             raise PendingActionError("ACTION_ACCESS_DENIED")
 
     @staticmethod
-    def _raise_terminal_status(status: str) -> None:
+    def _raise_terminal_status(status: str, tool_name: str | None = None) -> None:
         errors = {
             PendingActionStatus.CONFIRMED.value: "ACTION_ALREADY_CONFIRMED",
             PendingActionStatus.EXECUTING.value: "ACTION_EXECUTION_IN_PROGRESS",
@@ -295,4 +299,17 @@ class PendingActionService:
             PendingActionStatus.FAILED.value: "ACTION_NOT_CONFIRMABLE",
         }
         if status in errors:
-            raise PendingActionError(errors[status])
+            raise PendingActionError(
+                PendingActionService._profile_pending_code(
+                    tool_name, errors[status]
+                )
+            )
+
+    @staticmethod
+    def _profile_pending_code(tool_name: str | None, code: str) -> str:
+        if tool_name != "profile_crud_workflow":
+            return code
+        return {
+            "ACTION_EXPIRED": "PENDING_ACTION_EXPIRED",
+            "ACTION_ALREADY_EXECUTED": "PENDING_ACTION_ALREADY_EXECUTED",
+        }.get(code, code)

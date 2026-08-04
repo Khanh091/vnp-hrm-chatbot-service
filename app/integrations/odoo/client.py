@@ -133,6 +133,31 @@ class OdooClient:
             params=params,
         )
 
+    async def request_profile_resource(
+        self,
+        method: str,
+        path: str,
+        *,
+        request_id: str,
+        response_model: type[ResponseT],
+        payload: dict[str, Any],
+    ) -> ResponseT:
+        """Transport hook restricted to canonical profile resource routes."""
+        prefix = "/api/hrm-chatbot/v1/profile/"
+        if (
+            method not in {"GET", "POST", "PATCH", "DELETE"}
+            or not path.startswith(prefix)
+        ):
+            raise ValueError("path is not a bounded profile endpoint")
+        return await self._request(
+            method,
+            path,
+            request_id=request_id,
+            response_model=response_model,
+            params=payload if method == "GET" else None,
+            json=None if method == "GET" else payload,
+        )
+
     async def _request(
         self,
         method: str,

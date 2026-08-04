@@ -32,6 +32,7 @@ class Operation(str, Enum):
     CHECK = "check"
     CREATE = "create"
     UPDATE = "update"
+    DELETE = "delete"
     CANCEL = "cancel"
 
 
@@ -389,6 +390,7 @@ class ToolDefinition(BaseModel):
         query_operation = {
             Operation.CREATE: QueryOperation.CREATE,
             Operation.UPDATE: QueryOperation.UPDATE,
+            Operation.DELETE: QueryOperation.DELETE,
             Operation.CANCEL: QueryOperation.CANCEL,
         }.get(self.operation, QueryOperation.READ)
         if query_operation is not capability_definition.operation:
@@ -450,6 +452,7 @@ class ToolDefinition(BaseModel):
         return {
             Operation.CREATE: QueryOperation.CREATE,
             Operation.UPDATE: QueryOperation.UPDATE,
+            Operation.DELETE: QueryOperation.DELETE,
             Operation.CANCEL: QueryOperation.CANCEL,
         }.get(self.operation, QueryOperation.READ)
 

@@ -10,11 +10,13 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.common.capability_outcomes import CapabilityOutcome
 from app.context.conversation import ConversationStatus
 from app.context.entities import ResolvedSubject
+from app.integrations.odoo.profile_schema import ProfileSchemaError
 from app.orchestration.context import GraphContext
 from app.orchestration.nodes.common import stage_update
-from app.orchestration.state import ChatGraphState
+from app.orchestration.state import ChatGraphState, ChatResponseType
 from app.routing.taxonomy import SubjectScope, SubjectType
 from app.security.authorization import AuthorizationDecision, AuthorizationRequest
 from app.tools.definitions import (
@@ -44,6 +46,10 @@ async def execute_write_tool_node(
         conversation_id=state["conversation_id"],
         odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
     )
+    if persisted_action.tool_name == "profile_crud_workflow":
+        return await _execute_profile_action(
+            state, runtime, persisted_action, started
+        )
     tool = runtime.context.tool_registry.get(persisted_action.tool_name)
     if not tool.enabled:
         raise RuntimeError("PENDING_TOOL_DISABLED")
@@ -204,4 +210,78 @@ async def execute_write_tool_node(
     )
     update["tool_result"] = result.model_dump(mode="json")
     update["authorization"] = decision.model_dump(mode="json")
+    return update
+
+
+async def _execute_profile_action(state, runtime, action, started):
+    trusted = state["trusted_context"]
+    actor = int(trusted["odoo_user_id"])
+    arguments = dict(action.validated_arguments)
+    arguments["idempotency_key"] = action.idempotency_key
+    success = False
+    error_code = None
+    result_data = None
+    try:
+        if arguments.get("write_mode") == "approval_request":
+            result = await runtime.context.profile_schema_client.execute_change_request(
+                arguments, odoo_user_id=actor, request_id=state["request_id"]
+            )
+            result_data = result.model_dump(mode="json")
+        else:
+            result_data = await runtime.context.profile_schema_client.execute_direct(
+                arguments, odoo_user_id=actor, request_id=state["request_id"]
+            )
+        success = True
+    except ProfileSchemaError as error:
+        error_code = error.reason_code
+    await runtime.context.pending_action_service.finish(
+        action.action_id, odoo_user_id=actor, success=success,
+        error_code=error_code, result_summary=result_data,
+    )
+    conversation = await runtime.context.conversation_service.load_owned(
+        state["conversation_id"], actor
+    )
+    await runtime.context.conversation_service.update(
+        conversation,
+        status=ConversationStatus.COMPLETED if success else ConversationStatus.FAILED,
+    )
+    update = stage_update(
+        state, event="profile_write_execution_completed",
+        timing_name="odoo_execution_ms", started=started,
+        data={"success": success, "error_code": error_code},
+    )
+    if success:
+        approval = arguments.get("write_mode") == "approval_request"
+        text = (
+            "Yêu cầu điều chỉnh đã được tạo và đang chờ xử lý."
+            if approval else "Thông tin hồ sơ đã được cập nhật."
+        )
+        update.update({
+            "response_type": ChatResponseType.ANSWER,
+            "capability_outcome": CapabilityOutcome.SUCCESS,
+            "response_text": text,
+            "response_data": {"result": result_data},
+        })
+    else:
+        error_messages = {
+            "PROFILE_RECORD_CHANGED": (
+                "Dòng hồ sơ đã thay đổi sau khi bạn xác nhận. "
+                "Vui lòng xem lại thông tin mới nhất."
+            ),
+            "PROFILE_RECORD_NOT_FOUND": (
+                "Không tìm thấy dòng hồ sơ thuộc tài khoản hiện tại."
+            ),
+            "PROFILE_OPERATION_FORBIDDEN": (
+                "Bạn không được phép thực hiện thao tác này."
+            ),
+            "PROFILE_INVALID_VALUE": "Giá trị hồ sơ không hợp lệ.",
+        }
+        update.update({
+            "response_type": ChatResponseType.ERROR,
+            "capability_outcome": CapabilityOutcome.INVALID,
+            "response_text": error_messages.get(
+                error_code, "Không thể thực hiện thay đổi hồ sơ."
+            ),
+            "response_data": {"error_code": error_code},
+        })
     return update

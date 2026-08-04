@@ -145,6 +145,45 @@ class ProfileOptionList(BaseModel):
     items: tuple[ProfileOption, ...] = ()
 
 
+class ProfileRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record_id: int
+    label: str
+    description: str | None = None
+    snapshot: dict[str, Any]
+    version: str
+    can_update: bool
+    can_delete: bool
+
+
+class ProfileRecordList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource_key: str
+    items: tuple[ProfileRecord, ...] = ()
+
+
+class ProfileSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource_key: str
+    snapshot: dict[str, Any]
+    version: str
+
+
+class ProfileExecutionResult(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    resource_key: str
+    operation: str
+    write_mode: str
+    request_id: int | None = None
+    state: str | None = None
+    message: str | None = None
+
+
+class ProfileDirectResult(BaseModel):
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 _CANONICAL_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -258,6 +297,113 @@ class ProfileSchemaClient:
             query=query,
         )
         return result.items
+
+    async def list_records(self, resource_key: str, *, odoo_user_id: int,
+                           request_id: str) -> tuple[ProfileRecord, ...]:
+        self._validate_key(resource_key)
+        result = await self._profile_request(
+            "GET", f"/api/hrm-chatbot/v1/profile/resources/{resource_key}",
+            ProfileRecordList, odoo_user_id=odoo_user_id, request_id=request_id,
+        )
+        return result.items
+
+    async def get_record(self, resource_key: str, record_id: int, *,
+                         odoo_user_id: int, request_id: str) -> ProfileRecord:
+        self._validate_key(resource_key)
+        if record_id <= 0:
+            raise ProfileSchemaKeyNotFoundError("Invalid profile record")
+        return await self._profile_request(
+            "GET", f"/api/hrm-chatbot/v1/profile/resources/{resource_key}/{record_id}",
+            ProfileRecord, odoo_user_id=odoo_user_id, request_id=request_id,
+        )
+
+    async def get_current_snapshot(self, resource_key: str, *, odoo_user_id: int,
+                                   request_id: str) -> ProfileSnapshot:
+        self._validate_key(resource_key)
+        return await self._profile_request(
+            "GET", f"/api/hrm-chatbot/v1/profile/resources/{resource_key}/current",
+            ProfileSnapshot, odoo_user_id=odoo_user_id, request_id=request_id,
+        )
+
+    async def execute_change_request(
+        self,
+        payload: dict[str, Any],
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> ProfileExecutionResult:
+        resource_key = str(payload.get("resource_key", ""))
+        self._validate_key(resource_key)
+        body = {
+            "odoo_user_id": odoo_user_id,
+            "resource_key": resource_key,
+            "operation": payload.get("operation"),
+            "changes": payload.get("changes", {}),
+            "record_id": payload.get("record_id"),
+            "expected_version": payload.get("expected_version"),
+            "idempotency_key": payload.get("idempotency_key"),
+        }
+        body = {key: value for key, value in body.items() if value is not None}
+        return await self._profile_request(
+            "POST", "/api/hrm-chatbot/v1/profile/change-requests",
+            ProfileExecutionResult, odoo_user_id=odoo_user_id,
+            request_id=request_id, payload=body,
+        )
+
+    async def execute_direct(self, payload: dict[str, Any], *, odoo_user_id: int,
+                             request_id: str) -> dict[str, Any]:
+        resource_key = str(payload.get("resource_key", ""))
+        self._validate_key(resource_key)
+        operation = str(payload.get("operation", ""))
+        record_id = payload.get("record_id")
+        methods = {"create": "POST", "update": "PATCH", "delete": "DELETE"}
+        method = methods.get(operation)
+        if method is None or (operation in {"update", "delete"} and not record_id):
+            raise ProfileSchemaContractError("Invalid direct profile operation")
+        path = f"/api/hrm-chatbot/v1/profile/resources/{resource_key}"
+        if record_id:
+            path += f"/{int(record_id)}"
+        body = {
+            "odoo_user_id": odoo_user_id,
+            "changes": payload.get("changes", {}),
+            "expected_version": payload.get("expected_version"),
+            "idempotency_key": payload.get("idempotency_key"),
+        }
+        body = {key: value for key, value in body.items() if value is not None}
+        result = await self._profile_request(
+            method, path, ProfileDirectResult, odoo_user_id=odoo_user_id,
+            request_id=request_id, payload=body,
+        )
+        return result.model_dump(mode="json")
+
+    async def _profile_request(self, method: str, path: str, model: type[SchemaT], *,
+                               odoo_user_id: int, request_id: str,
+                               payload: dict[str, Any] | None = None) -> SchemaT:
+        if odoo_user_id <= 0:
+            raise ProfileSchemaAccessDeniedError()
+        values = payload or {"odoo_user_id": odoo_user_id}
+        try:
+            return await self._odoo.request_profile_resource(
+                method,
+                path,
+                request_id=request_id,
+                response_model=model,
+                payload=values,
+            )
+        except OdooAccessDeniedError as error:
+            if str(error.odoo_error_code or "").startswith("PROFILE_"):
+                raise ProfileSchemaError(
+                    str(error.odoo_error_code), str(error)
+                ) from error
+            raise ProfileSchemaAccessDeniedError() from error
+        except OdooRecordNotFoundError as error:
+            if str(error.odoo_error_code or "").startswith("PROFILE_"):
+                raise ProfileSchemaError(
+                    str(error.odoo_error_code), str(error)
+                ) from error
+            raise ProfileSchemaKeyNotFoundError(str(error)) from error
+        except OdooBusinessValidationError as error:
+            raise ProfileSchemaError(error.odoo_error_code, str(error)) from error
 
     async def _get(
         self,
