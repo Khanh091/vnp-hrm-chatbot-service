@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 from time import perf_counter
 from typing import Any
@@ -12,6 +13,7 @@ from app.integrations.odoo.profile_schema import (
     ProfileField,
     ProfileResource,
     ProfileSchemaError,
+    ProfileSection,
     ProfileWriteMode,
     input_type_for_field,
 )
@@ -20,6 +22,7 @@ from app.orchestration.nodes.common import stage_update
 from app.orchestration.state import ChatGraphState, ChatResponseType
 from app.routing.profile_target_resolver import (
     ProfileTargetOutsideAllowlistError,
+    ProfileTargetResolution,
     ProfileTargetResolverError,
 )
 from app.routing.schemas import QueryClassification
@@ -73,9 +76,11 @@ async def resolve_profile_write_node(
         and structured_answer.get("field")
         in {
             "profile_section_key",
+            "profile_section_item",
             "profile_resource_key",
             "profile_field_keys",
             "profile_record_id",
+            "derived_resource_action",
         }
     ):
         workflow_data["profile_target_resolved"] = True
@@ -99,23 +104,69 @@ async def resolve_profile_write_node(
         if key in collected:
             changes[key] = collected[key]
 
+    selected_derived_action = collected.get("derived_resource_action")
+    if selected_derived_action in {"create", "update"}:
+        derived_resource = workflow_data.get("derived_from_resource")
+        if derived_resource:
+            resource_key = str(derived_resource)
+            field_keys = []
+            operation = Operation(str(selected_derived_action))
+            classification = classification.model_copy(
+                update={"operation": operation}
+            )
+            workflow_data.update({
+                "profile_resource_key": resource_key,
+                "profile_field_keys": [],
+                "operation": operation.value,
+            })
+
     schema = runtime.context.profile_schema_client
     try:
-        sections = await schema.get_sections(
+        section_summaries = await schema.get_sections(
             None,
             odoo_user_id=actor,
             request_id=request_id,
         )
-        all_resources: list[ProfileResource] = []
-        for section in sections:
-            all_resources.extend(
-                await schema.get_resources(
-                    section.key,
-                    None,
-                    odoo_user_id=actor,
-                    request_id=request_id,
+        sections = tuple(
+            await asyncio.gather(
+                *(
+                    schema.get_section(
+                        section.key,
+                        None,
+                        odoo_user_id=actor,
+                        request_id=request_id,
+                    )
+                    for section in section_summaries
                 )
             )
+        )
+        resource_summaries = [
+            resource
+            for group in await asyncio.gather(
+                *(
+                    schema.get_resources(
+                        section.key,
+                        None,
+                        odoo_user_id=actor,
+                        request_id=request_id,
+                    )
+                    for section in sections
+                )
+            )
+            for resource in group
+        ]
+        all_resources = list(
+            await asyncio.gather(
+                *(
+                    schema.get_resource(
+                        resource.key,
+                        odoo_user_id=actor,
+                        request_id=request_id,
+                    )
+                    for resource in resource_summaries
+                )
+            )
+        )
 
         if not workflow_data.get("profile_target_resolved"):
             try:
@@ -127,26 +178,25 @@ async def resolve_profile_write_node(
                     resources=tuple(all_resources),
                     request_id=request_id,
                 )
-                # Resolve fields only after the resource allowlist has narrowed.
-                if resolution.resource_key:
-                    detailed = await schema.get_resource(
-                        resolution.resource_key,
-                        odoo_user_id=actor,
-                        request_id=request_id,
-                    )
-                    resolution = await runtime.context.profile_target_resolver.resolve(
-                        original_query=state.get("user_message") or "",
-                        intent=classification.intent,  # type: ignore[arg-type]
-                        operation=operation,
-                        sections=sections,
-                        resources=(detailed,),
-                        request_id=request_id,
-                    )
-                section_key = resolution.section_key
-                resource_key = resolution.resource_key
-                field_keys = resolution.field_keys
-                record_reference = resolution.record_reference_text
+                (
+                    section_key,
+                    resource_key,
+                    field_keys,
+                    record_reference,
+                ) = _merge_profile_target(
+                    section_key,
+                    resource_key,
+                    field_keys,
+                    record_reference,
+                    resolution,
+                )
                 workflow_data["profile_resolution_reason"] = resolution.reason_code
+                workflow_data["profile_candidate_counts"] = {
+                    "sections": len(sections),
+                    "resources": len(all_resources),
+                    "fields": sum(len(item.direct_fields) for item in sections)
+                    + sum(len(item.fields) for item in all_resources),
+                }
             except ProfileTargetOutsideAllowlistError as error:
                 workflow_data["profile_resolution_error"] = error.reason_code
                 return await _clarify_section(
@@ -185,29 +235,65 @@ async def resolve_profile_write_node(
                 "Bạn muốn thay đổi phần hồ sơ nào?",
             )
 
-        if not resource_key:
-            resources = await schema.get_resources(
-                str(section_key),
-                operation,
-                odoo_user_id=actor,
-                request_id=request_id,
+        section = next(
+            (item for item in sections if item.key == str(section_key)),
+            None,
+        )
+        if section is None:
+            raise ProfileTargetOutsideAllowlistError()
+
+        selected_section_item = collected.get("profile_section_item")
+        if (
+            selected_section_item
+            and isinstance(structured_answer, dict)
+            and structured_answer.get("answer_type") == "option_select"
+            and structured_answer.get("field") == "profile_section_item"
+        ):
+            selected_key = str(selected_section_item)
+            direct = next(
+                (item for item in section.direct_fields
+                 if item.key == selected_key),
+                None,
             )
+            child = next(
+                (item for item in all_resources
+                 if item.section_key == section.key
+                 and item.key == selected_key),
+                None,
+            )
+            if direct is not None:
+                resource_key = None
+                field_keys = [direct.key]
+            elif child is not None:
+                resource_key = child.key
+                field_keys = []
+            else:
+                raise ProfileTargetOutsideAllowlistError()
+            workflow_data["profile_resource_key"] = resource_key
+            workflow_data["profile_field_keys"] = field_keys
+
+        direct_fields = [
+            item for item in section.direct_fields if item.key in field_keys
+        ]
+        if direct_fields:
+            if len(direct_fields) != len(field_keys) or resource_key is not None:
+                raise ProfileTargetOutsideAllowlistError()
+            return await _resolve_direct_field_update(
+                state, runtime, started, classification, workflow_data,
+                section, direct_fields, record_reference, changes,
+            )
+
+        if not resource_key:
             return await _clarification(
-                state,
-                runtime,
-                started,
-                classification,
-                operation,
-                workflow_data,
-                section_key=str(section_key),
-                resource_key=None,
-                field_keys=[],
-                record_reference=record_reference,
-                changes=changes,
-                slot_name="profile_resource_key",
-                input_type="resource_select",
-                text="Bạn muốn sửa nhóm thông tin nào?",
-                options=_options(resources),
+                state, runtime, started, classification, operation,
+                workflow_data, section_key=str(section_key),
+                resource_key=None, field_keys=[],
+                record_reference=record_reference, changes=changes,
+                slot_name="profile_section_item", input_type="field_select",
+                text="Bạn muốn sửa mục nào?",
+                options=_section_item_options(
+                    section, all_resources, operation
+                ),
             )
 
         resource = await schema.get_resource(
@@ -217,8 +303,22 @@ async def resolve_profile_write_node(
         )
         if resource.section_key != section_key:
             raise ProfileTargetOutsideAllowlistError()
+        if operation is Operation.CREATE and resource.resource_type == "singleton":
+            operation = Operation.UPDATE
+            classification = classification.model_copy(
+                update={"operation": operation}
+            )
+            workflow_data["operation"] = operation.value
         if not resource.allows(operation):
             return _forbidden(state, started, "")
+
+        # Follow-up answers are stored by canonical slot name. Merge every field
+        # emitted by this bounded resource, not only the initially resolved keys.
+        # Collection creates often start without field_keys, which previously made
+        # a value such as "IELTS" disappear and caused the same question to repeat.
+        for definition in resource.fields:
+            if definition.key in collected:
+                changes[definition.key] = collected[definition.key]
 
         selected_fields = [
             field for field in resource.fields if field.key in field_keys
@@ -230,10 +330,17 @@ async def resolve_profile_write_node(
             None,
         )
         if forbidden_field is not None:
+            if forbidden_field.derived_from_resource:
+                return await _derived_redirect(
+                    state, runtime, started, classification, workflow_data,
+                    section_key=str(section_key), field=forbidden_field,
+                    changes=changes,
+                )
             return _forbidden(
                 state,
                 started,
-                forbidden_field.description or "",
+                forbidden_field.restriction_reason
+                or forbidden_field.description or "",
             )
 
         if (
@@ -290,6 +397,13 @@ async def resolve_profile_write_node(
                 )
         elif operation is Operation.UPDATE:
             if not selected_fields:
+                selectable_fields = list(operation_fields)
+                selectable_keys = {item.key for item in selectable_fields}
+                selectable_fields.extend(
+                    item for item in resource.fields
+                    if item.derived_from_resource
+                    and item.key not in selectable_keys
+                )
                 return await _clarification(
                     state,
                     runtime,
@@ -305,7 +419,7 @@ async def resolve_profile_write_node(
                     slot_name="profile_field_keys",
                     input_type="field_select",
                     text="Bạn muốn sửa thông tin nào?",
-                    options=_options(operation_fields),
+                    options=_options(selectable_fields),
                 )
             missing_values = [
                 field for field in selected_fields if field.key not in changes
@@ -425,12 +539,91 @@ async def resolve_profile_write_node(
         )
 
 
+async def _resolve_direct_field_update(
+    state: ChatGraphState,
+    runtime: Runtime[GraphContext],
+    started: float,
+    classification: QueryClassification,
+    workflow_data: dict[str, Any],
+    section: ProfileSection,
+    selected_fields: list[ProfileField],
+    record_reference: str | None,
+    changes: dict[str, Any],
+) -> dict[str, object]:
+    operation = Operation.UPDATE
+    classification = classification.model_copy(update={"operation": operation})
+    collected = dict(state.get("collected_arguments", {}))
+    for field in section.direct_fields:
+        if field.key in collected:
+            changes[field.key] = collected[field.key]
+
+    forbidden = next(
+        (field for field in selected_fields if not field.updatable), None
+    )
+    if forbidden is not None:
+        if forbidden.derived_from_resource:
+            return await _derived_redirect(
+                state, runtime, started, classification, workflow_data,
+                section_key=section.key, field=forbidden, changes=changes,
+            )
+        return _forbidden(
+            state, started,
+            forbidden.restriction_reason or forbidden.description or "",
+        )
+
+    actor = int(state["trusted_context"]["odoo_user_id"])
+    current = await runtime.context.profile_schema_client.get_section_snapshot(
+        section.key, odoo_user_id=actor, request_id=state["request_id"]
+    )
+    current_snapshot = dict(current.snapshot)
+    missing = [field for field in selected_fields if field.key not in changes]
+    if missing:
+        return await _clarify_direct_value(
+            state, runtime, started, classification, workflow_data,
+            section, missing[0], [field.key for field in selected_fields],
+            record_reference, changes,
+            current_snapshot=current_snapshot,
+            missing_profile_slots=[field.key for field in missing],
+        )
+
+    changes = {
+        key: value for key, value in changes.items()
+        if not _same_value(current_snapshot.get(key), value)
+    }
+    if not changes:
+        return _typed_error(
+            state, started, "PROFILE_INVALID_VALUE",
+            "Giá trị mới không khác thông tin hiện tại.",
+            CapabilityOutcome.INVALID,
+        )
+    write_mode = (
+        ProfileWriteMode.APPROVAL_REQUEST
+        if any(field.write_mode is ProfileWriteMode.APPROVAL_REQUEST
+               for field in selected_fields)
+        else ProfileWriteMode.DIRECT
+    )
+    profile_data = _profile_data(
+        section_key=section.key, resource_key=None,
+        field_keys=[field.key for field in selected_fields],
+        record_reference=record_reference, changes=changes,
+        write_mode=write_mode, missing_profile_slots=[],
+    )
+    profile_data["profile_current_snapshot"] = current_snapshot
+    workflow_data.update(profile_data)
+    workflow_data["operation"] = operation.value
+    return await _create_profile_confirmation(
+        state, runtime, started, classification, None, operation,
+        selected_fields, None, current_snapshot, current.version,
+        changes, write_mode, workflow_data, section=section,
+    )
+
+
 async def _create_profile_confirmation(
     state: ChatGraphState,
     runtime: Runtime[GraphContext],
     started: float,
     classification: QueryClassification,
-    resource: ProfileResource,
+    resource: ProfileResource | None,
     operation: Operation,
     selected_fields: list[ProfileField],
     record_id: int | None,
@@ -439,12 +632,15 @@ async def _create_profile_confirmation(
     changes: dict[str, Any],
     write_mode: ProfileWriteMode,
     workflow_data: dict[str, Any],
+    *,
+    section: ProfileSection | None = None,
 ) -> dict[str, object]:
     trusted = state["trusted_context"]
     arguments = {
         "intent": classification.intent.value,
         "operation": operation.value,
-        "resource_key": resource.key,
+        "section_key": section.key if section is not None else None,
+        "resource_key": resource.key if resource is not None else None,
         "record_id": record_id,
         "current_snapshot": current_snapshot,
         "expected_version": expected_version,
@@ -461,6 +657,8 @@ async def _create_profile_confirmation(
                 "new_value": _display_value(changes[definition.key]),
             })
     if operation is Operation.CREATE:
+        if resource is None:
+            raise ProfileTargetOutsideAllowlistError()
         fields_by_key = {field.key: field for field in resource.fields}
         summary = [
             {"label": fields_by_key[key].label, "old_value": None,
@@ -468,6 +666,8 @@ async def _create_profile_confirmation(
             for key, value in changes.items() if key in fields_by_key
         ]
     elif operation is Operation.DELETE:
+        if resource is None:
+            raise ProfileTargetOutsideAllowlistError()
         summary = [{
             "label": resource.label,
             "old_value": _display_value(
@@ -493,6 +693,10 @@ async def _create_profile_confirmation(
         workflow_data={"pending_action_id": action.action_id},
     )
     approval = write_mode is ProfileWriteMode.APPROVAL_REQUEST
+    target_label = resource.label if resource is not None else (
+        selected_fields[0].label if len(selected_fields) == 1
+        else section.label if section is not None else "hồ sơ"
+    )
     action_label = {
         Operation.CREATE: "thêm",
         Operation.UPDATE: "cập nhật",
@@ -513,7 +717,7 @@ async def _create_profile_confirmation(
         "action": operation.value,
         "title": (
             "Xác nhận gửi yêu cầu điều chỉnh"
-            if approval else f"{action_label.capitalize()} {resource.label}"
+            if approval else f"{action_label.capitalize()} {target_label}"
         ),
         "summary": summary,
         "confirm_label": confirm_label,
@@ -642,7 +846,13 @@ async def _clarify_section(
             odoo_user_id=actor,
             request_id=state["request_id"],
         )
-        if resources:
+        direct_fields = [
+            field for field in section.direct_fields
+            if field.allows(
+                Operation.UPDATE if operation is Operation.CREATE else operation
+            )
+        ]
+        if resources or direct_fields:
             allowed.append(section)
     return await _clarification(
         state,
@@ -660,6 +870,89 @@ async def _clarify_section(
         input_type="section_select",
         text=text,
         options=_options(allowed),
+    )
+
+
+async def _clarify_direct_value(
+    state: ChatGraphState,
+    runtime: Runtime[GraphContext],
+    started: float,
+    classification: QueryClassification,
+    workflow_data: dict[str, Any],
+    section: ProfileSection,
+    field: ProfileField,
+    field_keys: list[str],
+    record_reference: str | None,
+    changes: dict[str, Any],
+    *,
+    current_snapshot: dict[str, Any],
+    missing_profile_slots: list[str],
+) -> dict[str, object]:
+    workflow_data = {
+        **workflow_data,
+        "profile_write_mode": field.write_mode.value,
+        "operation": Operation.UPDATE.value,
+    }
+    options: list[dict[str, Any]] = []
+    input_type = input_type_for_field(field)
+    if input_type in {"single_select", "searchable_select"}:
+        registry_options = await (
+            runtime.context.profile_schema_client.get_section_field_options(
+                section.key,
+                field.key,
+                odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
+                request_id=state["request_id"],
+            )
+        )
+        options = _options(registry_options)
+    current_label = _display_value(current_snapshot.get(field.key))
+    text = (
+        f"{field.label} hiện tại là {current_label}. Bạn muốn đổi thành gì?"
+        if current_label
+        else f"Bạn muốn nhập {field.label} là gì?"
+    )
+    return await _clarification(
+        state, runtime, started, classification, Operation.UPDATE,
+        workflow_data, section_key=section.key, resource_key=None,
+        field_keys=field_keys, record_reference=record_reference,
+        changes=changes, slot_name=field.key, input_type=input_type,
+        text=text,
+        options=options, missing_profile_slots=missing_profile_slots,
+    )
+
+
+async def _derived_redirect(
+    state: ChatGraphState,
+    runtime: Runtime[GraphContext],
+    started: float,
+    classification: QueryClassification,
+    workflow_data: dict[str, Any],
+    *,
+    section_key: str,
+    field: ProfileField,
+    changes: dict[str, Any],
+) -> dict[str, object]:
+    derived_resource = str(field.derived_from_resource)
+    workflow_data = {
+        **workflow_data,
+        "derived_from_resource": derived_resource,
+        "derived_field_key": field.key,
+    }
+    return await _clarification(
+        state, runtime, started, classification, Operation.UPDATE,
+        workflow_data, section_key=section_key, resource_key=None,
+        field_keys=[field.key], record_reference=None, changes=changes,
+        slot_name="derived_resource_action", input_type="single_select",
+        text=(
+            "Thông tin này được hệ thống tổng hợp từ quá trình "
+            "đào tạo. Bạn muốn thao tác thế nào?"
+        ),
+        options=[
+            {"value": "create", "label": "Thêm trình độ đào tạo",
+             "description": None},
+            {"value": "update", "label": "Sửa trình độ đã có",
+             "description": None},
+        ],
     )
 
 
@@ -829,6 +1122,28 @@ def _profile_data(
     }
 
 
+def _merge_profile_target(
+    section_key: str | None,
+    resource_key: str | None,
+    field_keys: list[str],
+    record_reference: str | None,
+    resolution: ProfileTargetResolution,
+) -> tuple[str | None, str | None, list[str], str | None]:
+    """Merge resolver output without replacing a useful target with empties."""
+    return (
+        resolution.section_key
+        if resolution.section_key is not None
+        else section_key,
+        resolution.resource_key
+        if resolution.resource_key is not None
+        else resource_key,
+        resolution.field_keys if resolution.field_keys else field_keys,
+        resolution.record_reference_text
+        if resolution.record_reference_text is not None
+        else record_reference,
+    )
+
+
 def _options(items: Any) -> list[dict[str, Any]]:
     return [
         {
@@ -838,6 +1153,30 @@ def _options(items: Any) -> list[dict[str, Any]]:
         }
         for item in items
     ]
+
+
+def _section_item_options(
+    section: ProfileSection,
+    resources: list[ProfileResource],
+    operation: Operation,
+) -> list[dict[str, Any]]:
+    direct_operation = (
+        Operation.UPDATE if operation is Operation.CREATE else operation
+    )
+    options = _options(
+        field for field in section.direct_fields
+        if field.allows(direct_operation) or field.derived_from_resource
+    )
+    for resource in resources:
+        resource_operation = (
+            Operation.UPDATE
+            if operation is Operation.CREATE
+            and resource.resource_type == "singleton"
+            else operation
+        )
+        if resource.section_key == section.key and resource.allows(resource_operation):
+            options.extend(_options([resource]))
+    return options
 
 
 def _forbidden(

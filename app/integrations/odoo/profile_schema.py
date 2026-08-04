@@ -72,6 +72,17 @@ class ProfileField(BaseModel):
     selection_values: tuple[ProfileOption, ...] = ()
     option_provider: str | None = None
     description: str | None = None
+    section_key: str | None = None
+    resource_key: str | None = None
+    derived_from_resource: str | None = None
+    restriction_reason: str | None = None
+    depends_on: tuple[str, ...] = ()
+    options_context_keys: tuple[str, ...] = ()
+    clear_when_dependency_changes: bool = False
+    default_value: JsonValue | None = None
+    validator: str | None = None
+    range_group: str | None = None
+    unsupported_input_type: str | None = None
 
     def allows(self, operation: Operation) -> bool:
         return {
@@ -119,7 +130,10 @@ class ProfileSection(BaseModel):
     key: str
     label: str
     aliases: tuple[str, ...] = ()
+    direct_fields: tuple[ProfileField, ...] = ()
+    fields: tuple[ProfileField, ...] = ()
     resource_keys: tuple[str, ...] = ()
+    resources: tuple[ProfileResource, ...] = ()
 
 
 class ProfileSectionList(BaseModel):
@@ -140,7 +154,8 @@ class ProfileFieldList(BaseModel):
 
 class ProfileOptionList(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    resource_key: str
+    section_key: str | None = None
+    resource_key: str | None = None
     field_key: str
     items: tuple[ProfileOption, ...] = ()
 
@@ -165,14 +180,16 @@ class ProfileRecordList(BaseModel):
 
 class ProfileSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    resource_key: str
+    section_key: str | None = None
+    resource_key: str | None = None
     snapshot: dict[str, Any]
     version: str
 
 
 class ProfileExecutionResult(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
-    resource_key: str
+    section_key: str | None = None
+    resource_key: str | None = None
     operation: str
     write_mode: str
     request_id: int | None = None
@@ -243,6 +260,39 @@ class ProfileSchemaClient:
         )
         return result.items
 
+    async def get_section(
+        self,
+        section_key: str,
+        operation: Operation | None,
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> ProfileSection:
+        self._validate_key(section_key)
+        return await self._get(
+            f"{self.SECTIONS_PATH}/{section_key}",
+            ProfileSection,
+            actor=odoo_user_id,
+            request_id=request_id,
+            operation=operation,
+        )
+
+    async def get_section_fields(
+        self,
+        section_key: str,
+        operation: Operation | None,
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> tuple[ProfileField, ...]:
+        section = await self.get_section(
+            section_key,
+            operation,
+            odoo_user_id=odoo_user_id,
+            request_id=request_id,
+        )
+        return section.direct_fields
+
     async def get_resource(
         self,
         resource_key: str,
@@ -298,6 +348,26 @@ class ProfileSchemaClient:
         )
         return result.items
 
+    async def get_section_field_options(
+        self,
+        section_key: str,
+        field_key: str,
+        query: str | None = None,
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> tuple[ProfileOption, ...]:
+        self._validate_key(section_key)
+        self._validate_key(field_key)
+        result = await self._get(
+            f"{self.SECTIONS_PATH}/{section_key}/fields/{field_key}/options",
+            ProfileOptionList,
+            actor=odoo_user_id,
+            request_id=request_id,
+            query=query,
+        )
+        return result.items
+
     async def list_records(self, resource_key: str, *, odoo_user_id: int,
                            request_id: str) -> tuple[ProfileRecord, ...]:
         self._validate_key(resource_key)
@@ -325,6 +395,14 @@ class ProfileSchemaClient:
             ProfileSnapshot, odoo_user_id=odoo_user_id, request_id=request_id,
         )
 
+    async def get_section_snapshot(self, section_key: str, *, odoo_user_id: int,
+                                   request_id: str) -> ProfileSnapshot:
+        self._validate_key(section_key)
+        return await self._profile_request(
+            "GET", f"/api/hrm-chatbot/v1/profile/sections/{section_key}/current",
+            ProfileSnapshot, odoo_user_id=odoo_user_id, request_id=request_id,
+        )
+
     async def execute_change_request(
         self,
         payload: dict[str, Any],
@@ -332,11 +410,20 @@ class ProfileSchemaClient:
         odoo_user_id: int,
         request_id: str,
     ) -> ProfileExecutionResult:
-        resource_key = str(payload.get("resource_key", ""))
-        self._validate_key(resource_key)
+        resource_key = payload.get("resource_key")
+        section_key = payload.get("section_key")
+        if bool(resource_key) == bool(section_key):
+            raise ProfileSchemaContractError(
+                "Profile write requires exactly one section or resource"
+            )
+        if resource_key:
+            self._validate_key(str(resource_key))
+        if section_key:
+            self._validate_key(str(section_key))
         body = {
             "odoo_user_id": odoo_user_id,
             "resource_key": resource_key,
+            "section_key": section_key,
             "operation": payload.get("operation"),
             "changes": payload.get("changes", {}),
             "record_id": payload.get("record_id"),
@@ -454,6 +541,12 @@ class ProfileSchemaClient:
 
 
 def input_type_for_field(field: ProfileField) -> str:
+    if field.unsupported_input_type:
+        return field.unsupported_input_type
+    if field.option_provider:
+        return "searchable_select"
+    if field.selection_values:
+        return "single_select"
     return {
         "selection": "single_select",
         "many2one": "searchable_select",
@@ -462,6 +555,8 @@ def input_type_for_field(field: ProfileField) -> str:
         "integer": "number",
         "decimal": "number",
         "float": "number",
+        "binary": "attachment",
+        "attachment": "attachment",
     }.get(field.field_type, "text")
 
 

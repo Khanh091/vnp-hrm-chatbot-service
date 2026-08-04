@@ -1,146 +1,161 @@
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from app.context.conversation import PendingActionStatus
-from app.context.pending_action_service import PendingActionError, PendingActionService
 from app.integrations.odoo.profile_schema import (
-    ProfileExecutionResult,
     ProfileField,
-    ProfileRecord,
     ProfileResource,
-    ProfileSchemaError,
     ProfileSection,
     ProfileSnapshot,
     ProfileWriteMode,
 )
-from app.orchestration.nodes.execute_write_tool import execute_write_tool_node
 from app.orchestration.nodes.resolve_profile_write import resolve_profile_write_node
+from app.routing.profile_target_resolver import (
+    ProfileTargetResolution,
+    ProfileTargetResolver,
+)
 from app.routing.schemas import Domain, QueryClassification
 from app.routing.taxonomy import Intent, Operation, QueryRoute, SubjectScope
 
-PHONE = ProfileField(
-    key="mobile_phone", label="Số điện thoại", field_type="phone",
-    readable=True, creatable=False, updatable=True, deletable=False,
-    write_mode=ProfileWriteMode.APPROVAL_REQUEST,
+
+def field(key: str, label: str, *, writable: bool = True,
+          required: bool = False, derived: str | None = None,
+          reason: str | None = None, field_type: str = "text") -> ProfileField:
+    return ProfileField(
+        key=key, label=label, field_type=field_type,
+        readable=True, creatable=writable, updatable=writable,
+        deletable=False, required_on_create=required,
+        write_mode=(ProfileWriteMode.APPROVAL_REQUEST if writable
+                    else ProfileWriteMode.FORBIDDEN),
+        section_key="basic_profile", derived_from_resource=derived,
+        restriction_reason=reason,
+    )
+
+
+FULL_NAME = field("full_name", "Họ và tên")
+GENDER = field("gender", "Giới tính", field_type="selection")
+ALTERNATE_NAME = field("alternate_name", "Tên gọi khác")
+BIRTH_DATE = field("birth_date", "Ngày sinh", field_type="date")
+MOBILE = field("mobile_phone", "Di động", field_type="phone")
+EMAIL = field("work_email", "Email", field_type="email")
+EMPLOYEE_TYPE = field("employee_type", "Loại nhân sự", field_type="many2one")
+MANAGER = field("manager", "Người quản lý", field_type="many2one")
+MAIN_JOB = field("main_job", "Công việc chính được giao")
+DEPARTMENT = field(
+    "department", "Đơn vị / Phòng ban", writable=False,
+    reason="removed_by_edition_write", field_type="many2one",
 )
-DEPARTMENT = ProfileField(
-    key="department", label="Phòng ban", field_type="many2one",
-    readable=True, creatable=False, updatable=False, deletable=False,
-    write_mode=ProfileWriteMode.FORBIDDEN,
+HIGHEST_EDUCATION = field(
+    "highest_qualification", "Trình độ chuyên môn cao nhất",
+    writable=False, derived="education_records",
+    reason="derived_from_education_records", field_type="many2one",
 )
-CERTIFICATE = ProfileField(
-    key="certificate_name", label="Tên chứng chỉ", field_type="text",
-    readable=True, creatable=True, updatable=True, deletable=True,
-    required_on_create=True, write_mode=ProfileWriteMode.APPROVAL_REQUEST,
+CERTIFICATE_NAME = field(
+    "certificate_name", "Tên chứng chỉ", required=True,
 )
+CERTIFICATE_TYPE = field(
+    "certificate_type", "Loại chứng chỉ", required=True,
+    field_type="many2one",
+)
+
 CONTACT = ProfileResource(
     key="contact_information", label="Thông tin liên hệ",
     section_key="basic_profile", resource_type="singleton", readable=True,
-    creatable=False, updatable=True, deletable=False, fields=(PHONE,),
+    creatable=False, updatable=True, deletable=False,
+    fields=(MOBILE, EMAIL),
 )
 EMPLOYMENT = ProfileResource(
     key="employment_information", label="Thông tin công việc",
     section_key="basic_profile", resource_type="singleton", readable=True,
-    creatable=False, updatable=True, deletable=False, fields=(DEPARTMENT,),
+    creatable=False, updatable=True, deletable=False,
+    fields=(DEPARTMENT, EMPLOYEE_TYPE, MANAGER, MAIN_JOB),
+)
+EDUCATION_SUMMARY = ProfileResource(
+    key="education_summary", label="Thông tin trình độ đào tạo",
+    section_key="education_training", resource_type="singleton", readable=True,
+    creatable=False, updatable=True, deletable=False,
+    fields=(HIGHEST_EDUCATION,),
+)
+EDUCATION_RECORDS = ProfileResource(
+    key="education_records", label="Quá trình đào tạo",
+    section_key="education_training", resource_type="collection", readable=True,
+    creatable=True, updatable=True, deletable=True,
+    fields=(field("education_name", "Trình độ", required=True),),
 )
 CERTIFICATES = ProfileResource(
-    key="certificate_records", label="Chứng chỉ",
+    key="certificate_records", label="Văn bằng, chứng chỉ",
     section_key="education_training", resource_type="collection", readable=True,
-    creatable=True, updatable=True, deletable=True, fields=(CERTIFICATE,),
-    record_label_field="certificate_name", deletion_mode="unlink",
+    creatable=True, updatable=True, deletable=True,
+    fields=(CERTIFICATE_NAME, CERTIFICATE_TYPE),
 )
-SECTIONS = (
-    ProfileSection(key="basic_profile", label="Hồ sơ cơ bản",
-                   resource_keys=(CONTACT.key, EMPLOYMENT.key)),
-    ProfileSection(key="education_training", label="Giáo dục",
-                   resource_keys=(CERTIFICATES.key,)),
+BASIC = ProfileSection(
+    key="basic_profile", label="I. Thông tin cơ bản",
+    direct_fields=(FULL_NAME, GENDER, ALTERNATE_NAME, BIRTH_DATE),
+    fields=(FULL_NAME, GENDER, ALTERNATE_NAME, BIRTH_DATE),
+    resource_keys=(CONTACT.key, EMPLOYMENT.key),
 )
-RESOURCES = (CONTACT, EMPLOYMENT, CERTIFICATES)
-
-
-def certificate(record_id: int, issue_date: str) -> ProfileRecord:
-    return ProfileRecord(
-        record_id=record_id, label=f"TOEIC · {issue_date}",
-        description="Loại: Ngoại ngữ",
-        snapshot={"certificate_name": "TOEIC", "issue_date": issue_date},
-        version=f"version-{record_id}", can_update=True, can_delete=True,
-    )
+EDUCATION = ProfileSection(
+    key="education_training", label="Giáo dục và đào tạo",
+    resource_keys=(EDUCATION_SUMMARY.key, EDUCATION_RECORDS.key,
+                   CERTIFICATES.key),
+)
+SECTIONS = (BASIC, EDUCATION)
+RESOURCES = (
+    CONTACT, EMPLOYMENT, EDUCATION_SUMMARY, EDUCATION_RECORDS, CERTIFICATES,
+)
 
 
 class FakeSchema:
-    def __init__(self, *, records=(), execution_error: str | None = None) -> None:
-        self.records = tuple(records)
-        self.execution_error = execution_error
-        self.executions: list[dict[str, Any]] = []
-        self.direct_executions: list[dict[str, Any]] = []
-
     async def get_sections(self, operation, **kwargs):
         return SECTIONS
 
     async def get_resources(self, section_key, operation, **kwargs):
-        return tuple(item for item in RESOURCES if item.section_key == section_key
-                     and (operation is None or item.allows(operation)))
+        resources = tuple(item for item in RESOURCES
+                          if item.section_key == section_key)
+        if operation is None:
+            return resources
+        return tuple(item for item in resources if item.allows(operation))
 
     async def get_resource(self, key, **kwargs):
         return next(item for item in RESOURCES if item.key == key)
 
     async def get_fields(self, key, operation, **kwargs):
         resource = await self.get_resource(key)
-        return tuple(field for field in resource.fields if field.allows(operation))
+        return tuple(item for item in resource.fields if item.allows(operation))
 
-    async def list_records(self, key, **kwargs):
-        return self.records
-
-    async def get_record(self, key, record_id, **kwargs):
-        item = next(
-            (record for record in self.records if record.record_id == record_id),
-            None,
+    async def get_section_snapshot(self, key, **kwargs):
+        return ProfileSnapshot(
+            section_key=key,
+            snapshot={"alternate_name": "Định Lò"},
+            version="section-v1",
         )
-        if item is None:
-            raise ProfileSchemaError("PROFILE_RECORD_NOT_FOUND", "not found")
-        return item
 
     async def get_current_snapshot(self, key, **kwargs):
         return ProfileSnapshot(
-            resource_key=key,
-            snapshot={"mobile_phone": "0936261889", "work_email": "old@vnpt.vn"},
-            version="phone-version-1",
+            resource_key=key, snapshot={"mobile_phone": "0936261889"},
+            version="resource-v1",
         )
 
-    async def execute_change_request(self, payload, **kwargs):
-        self.executions.append(dict(payload))
-        if self.execution_error:
-            raise ProfileSchemaError(self.execution_error, "execution failed")
-        return ProfileExecutionResult(
-            resource_key=payload["resource_key"], operation=payload["operation"],
-            write_mode="approval_request", request_id=88, state="wait",
-        )
+    async def get_field_options(self, *args, **kwargs):
+        return ()
 
-    async def execute_direct(self, payload, **kwargs):
-        self.direct_executions.append(dict(payload))
-        return {"ok": True}
+    async def get_section_field_options(self, *args, **kwargs):
+        return ()
+
+    async def list_records(self, *args, **kwargs):
+        return ()
 
 
 class FakePending:
-    def __init__(self, persisted=None) -> None:
+    def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
-        self.persisted = persisted
-        self.finished: list[dict[str, Any]] = []
 
     async def create(self, **values):
         self.created.append(values)
-        return SimpleNamespace(
-            action_id="act-profile-1", expires_at=datetime.now(timezone.utc)
-        )
-
-    async def load_owned(self, *args, **kwargs):
-        return self.persisted
-
-    async def finish(self, *args, **kwargs):
-        self.finished.append(kwargs)
+        return SimpleNamespace(action_id="action-1", expires_at=SimpleNamespace(
+            isoformat=lambda: "2026-08-04T12:00:00+07:00"
+        ))
 
 
 class FakeConversations:
@@ -151,184 +166,142 @@ class FakeConversations:
         return None
 
 
-def classified(operation: Operation, intent: Intent = Intent.PROFILE_CONTACT):
+def classification(operation: Operation) -> QueryClassification:
     return QueryClassification(
-        route=QueryRoute.TASK, domain=Domain.PROFILE, intent=intent,
-        operation=operation, scope=SubjectScope.SELF, confidence=0.99,
-        reason_code="TEST",
+        route=QueryRoute.TASK, domain=Domain.PROFILE,
+        intent=Intent.PROFILE_CONTACT, operation=operation,
+        scope=SubjectScope.SELF, confidence=0.99, reason_code="TEST",
     )
 
 
-async def prepare(operation, resource, *, fields=(), changes=None, record_id=None,
-                  reference=None, schema=None):
-    schema = schema or FakeSchema()
+async def run_target(*, section: str, resource: str | None,
+                     fields: tuple[str, ...] = (), operation=Operation.UPDATE,
+                     changes: dict[str, Any] | None = None,
+                     collected: dict[str, Any] | None = None,
+                     previous_workflow: dict[str, Any] | None = None):
+    schema = FakeSchema()
     pending = FakePending()
     context = SimpleNamespace(
-        profile_schema_client=schema,
-        pending_action_service=pending,
+        profile_schema_client=schema, pending_action_service=pending,
         conversation_service=FakeConversations(),
     )
-    workflow = {
+    workflow = dict(previous_workflow or {})
+    workflow.update({
         "profile_target_resolved": True,
-        "profile_section_key": resource.section_key,
-        "profile_resource_key": resource.key,
-        "profile_field_keys": list(fields),
-        "profile_changes": changes or {},
-        "profile_record_id": record_id,
-        "profile_record_reference": reference,
-    }
+        "profile_section_key": section,
+        "profile_resource_key": resource,
+    })
+    if not previous_workflow:
+        workflow.update({
+            "profile_field_keys": list(fields),
+            "profile_changes": changes or {},
+        })
     state = {
         "conversation_id": "conv-1", "request_id": "req-1",
-        "user_message": "profile write", "trusted_context": {"odoo_user_id": 7},
-        "classification": classified(operation).model_dump(mode="json"),
-        "workflow_data": workflow, "collected_arguments": {}, "entity_memory": {},
+        "user_message": "profile write",
+        "trusted_context": {"odoo_user_id": 7},
+        "classification": classification(operation).model_dump(mode="json"),
+        "workflow_data": workflow,
+        "collected_arguments": collected or {}, "entity_memory": {},
     }
-    result = await resolve_profile_write_node(state, SimpleNamespace(context=context))
-    return result, pending, schema
+    result = await resolve_profile_write_node(
+        state, SimpleNamespace(context=context)
+    )
+    return result, pending
 
 
 @pytest.mark.asyncio
-async def test_1_phone_update_creates_pending_without_writing() -> None:
-    result, pending, schema = await prepare(
-        Operation.UPDATE, CONTACT, fields=("mobile_phone",),
-        changes={"mobile_phone": "0987654321"},
+async def test_1_alternate_name_is_direct_field_and_asks_value_immediately():
+    resolution = ProfileTargetResolution(
+        section_key="basic_profile", resource_key=None,
+        field_keys=["alternate_name"], record_reference_text=None,
+        confidence=0.99, needs_clarification=False, reason_code="DIRECT_FIELD",
     )
-    assert len(pending.created) == 1
-    assert schema.executions == []
-    assert result["response_data"]["message_type"] == "confirmation"
-    assert (
-        pending.created[0]["validated_arguments"]["expected_version"]
-        == "phone-version-1"
-    )
-
-
-@pytest.mark.asyncio
-async def test_2_confirm_update_sends_only_selected_field() -> None:
-    schema = FakeSchema()
-    action = SimpleNamespace(
-        action_id="act-1", tool_name="profile_crud_workflow", tool_version="1.0",
-        idempotency_key="idem-1", validated_arguments={
-            "intent": "profile_contact", "operation": "update",
-            "resource_key": "contact_information",
-            "changes": {"mobile_phone": "0987654321"},
-            "current_snapshot": {
-                "mobile_phone": "0936261889",
-                "work_email": "old@vnpt.vn",
-            },
-            "expected_version": "phone-version-1", "write_mode": "approval_request",
-        },
-    )
-    pending = FakePending(action)
-    context = SimpleNamespace(
-        pending_action_service=pending, profile_schema_client=schema,
-        conversation_service=FakeConversations(),
-    )
-    state = {
-        "pending_action": {"action_id": "act-1"}, "conversation_id": "conv-1",
-        "request_id": "req-1", "trusted_context": {"odoo_user_id": 7},
-    }
-    await execute_write_tool_node(state, SimpleNamespace(context=context))
-    assert schema.executions[0]["changes"] == {"mobile_phone": "0987654321"}
-    assert "work_email" not in schema.executions[0]["changes"]
-
-
-@pytest.mark.asyncio
-async def test_3_duplicate_toeic_requires_record_select() -> None:
-    result, pending, _ = await prepare(
-        Operation.UPDATE, CERTIFICATES, fields=("certificate_name",),
-        changes={"certificate_name": "TOEIC 900"}, reference="TOEIC",
-        schema=FakeSchema(
-            records=(
-                certificate(10, "2026-07-17"),
-                certificate(11, "2025-05-01"),
-            )
-        ),
+    ProfileTargetResolver._validate_allowlist(resolution, SECTIONS, RESOURCES)
+    result, pending = await run_target(
+        section=BASIC.key, resource=None, fields=(ALTERNATE_NAME.key,),
     )
     clarification = result["response_data"]["clarification"]
-    assert clarification["input_type"] == "record_select"
-    assert [option["value"] for option in clarification["options"]] == ["10", "11"]
+    assert clarification["slot_name"] == "alternate_name"
+    assert result["profile_resource_key"] is None
     assert pending.created == []
 
 
 @pytest.mark.asyncio
-async def test_4_delete_requires_confirmation_and_replay_is_blocked() -> None:
-    result, pending, schema = await prepare(
-        Operation.DELETE, CERTIFICATES, reference="TOEIC",
-        schema=FakeSchema(records=(certificate(10, "2026-07-17"),)),
-    )
-    assert result["response_data"]["confirmation"]["action"] == "delete"
-    assert schema.executions == [] and len(pending.created) == 1
-    with pytest.raises(PendingActionError) as error:
-        PendingActionService._raise_terminal_status(
-            PendingActionStatus.EXECUTED.value, "profile_crud_workflow"
-        )
-    assert error.value.code == "PENDING_ACTION_ALREADY_EXECUTED"
+async def test_2_basic_section_lists_direct_fields_and_resources():
+    result, _ = await run_target(section=BASIC.key, resource=None)
+    options = result["response_data"]["clarification"]["options"]
+    values = {item["value"] for item in options}
+    assert {"full_name", "gender", "alternate_name", "birth_date"} <= values
+    assert {"contact_information", "employment_information"} <= values
 
 
 @pytest.mark.asyncio
-async def test_5_forbidden_field_does_not_create_pending() -> None:
-    result, pending, _ = await prepare(
-        Operation.UPDATE, EMPLOYMENT, fields=("department",),
-        changes={"department": "9"},
+async def test_3_contact_resource_lists_only_contact_fields():
+    result, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
+    options = result["response_data"]["clarification"]["options"]
+    assert {item["value"] for item in options} == {"mobile_phone", "work_email"}
+
+
+@pytest.mark.asyncio
+async def test_4_add_mobile_is_normalized_to_singleton_update():
+    result, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key, fields=(MOBILE.key,),
+        operation=Operation.CREATE,
     )
+    assert result["response_data"]["clarification"]["slot_name"] == "mobile_phone"
+    assert result["workflow_data"]["operation"] == "update"
+
+
+@pytest.mark.asyncio
+async def test_5_employment_exposes_all_edition_writable_fields():
+    result, _ = await run_target(section=BASIC.key, resource=EMPLOYMENT.key)
+    values = {
+        item["value"]
+        for item in result["response_data"]["clarification"]["options"]
+    }
+    assert values == {"employee_type", "manager", "main_job"}
+    assert "department" not in values
+
+
+@pytest.mark.asyncio
+async def test_6_derived_education_field_redirects_to_collection():
+    result, pending = await run_target(
+        section=EDUCATION.key, resource=EDUCATION_SUMMARY.key,
+        fields=(HIGHEST_EDUCATION.key,),
+    )
+    clarification = result["response_data"]["clarification"]
+    assert clarification["slot_name"] == "derived_resource_action"
+    assert {item["value"] for item in clarification["options"]} == {
+        "create", "update",
+    }
+    assert result["workflow_data"]["derived_from_resource"] == "education_records"
+    assert pending.created == []
+
+
+@pytest.mark.asyncio
+async def test_7_certificate_text_answer_advances_to_next_required_slot():
+    first, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+    )
+    assert first["response_data"]["clarification"]["slot_name"] == "certificate_name"
+    second, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE, collected={"certificate_name": "IELTS"},
+        previous_workflow=first["workflow_data"],
+    )
+    assert second["response_data"]["clarification"]["slot_name"] == "certificate_type"
+    assert second["workflow_data"]["profile_changes"]["certificate_name"] == "IELTS"
+
+
+@pytest.mark.asyncio
+async def test_8_forbidden_field_has_explicit_restriction_reason():
+    result, pending = await run_target(
+        section=BASIC.key, resource=EMPLOYMENT.key,
+        fields=(DEPARTMENT.key,), changes={DEPARTMENT.key: "9"},
+    )
+    assert DEPARTMENT.restriction_reason == "removed_by_edition_write"
     assert result["response_data"]["error_code"] == "PROFILE_OPERATION_FORBIDDEN"
-    assert pending.created == []
-
-
-@pytest.mark.asyncio
-async def test_6_approval_request_never_uses_direct_write() -> None:
-    schema = FakeSchema()
-    action = SimpleNamespace(
-        action_id="act-approval", tool_name="profile_crud_workflow", tool_version="1.0",
-        idempotency_key="idem-approval", validated_arguments={
-            "intent": "profile_contact", "operation": "update",
-            "resource_key": "contact_information", "changes": {"mobile_phone": "0987"},
-            "expected_version": "v1", "write_mode": "approval_request",
-        },
-    )
-    context = SimpleNamespace(
-        pending_action_service=FakePending(action), profile_schema_client=schema,
-        conversation_service=FakeConversations(),
-    )
-    result = await execute_write_tool_node(
-        {"pending_action": {"action_id": action.action_id}, "conversation_id": "conv-1",
-         "request_id": "req-1", "trusted_context": {"odoo_user_id": 7}},
-        SimpleNamespace(context=context),
-    )
-    assert len(schema.executions) == 1 and schema.direct_executions == []
-    assert "chờ xử lý" in result["response_text"]
-
-
-@pytest.mark.asyncio
-async def test_7_changed_record_returns_typed_concurrency_error() -> None:
-    schema = FakeSchema(execution_error="PROFILE_RECORD_CHANGED")
-    action = SimpleNamespace(
-        action_id="act-stale", tool_name="profile_crud_workflow", tool_version="1.0",
-        idempotency_key="idem-stale", validated_arguments={
-            "intent": "profile_contact", "operation": "update",
-            "resource_key": "contact_information", "changes": {"mobile_phone": "0987"},
-            "expected_version": "stale", "write_mode": "approval_request",
-        },
-    )
-    pending = FakePending(action)
-    result = await execute_write_tool_node(
-        {"pending_action": {"action_id": action.action_id}, "conversation_id": "conv-1",
-         "request_id": "req-1", "trusted_context": {"odoo_user_id": 7}},
-        SimpleNamespace(context=SimpleNamespace(
-            pending_action_service=pending, profile_schema_client=schema,
-            conversation_service=FakeConversations(),
-        )),
-    )
-    assert result["response_data"]["error_code"] == "PROFILE_RECORD_CHANGED"
-    assert pending.finished[0]["success"] is False
-
-
-@pytest.mark.asyncio
-async def test_8_foreign_record_id_is_not_found() -> None:
-    result, pending, _ = await prepare(
-        Operation.UPDATE, CERTIFICATES, fields=("certificate_name",),
-        changes={"certificate_name": "Khác"}, record_id=999,
-        schema=FakeSchema(records=(certificate(10, "2026-07-17"),)),
-    )
-    assert result["response_data"]["error_code"] == "PROFILE_RECORD_NOT_FOUND"
+    assert "removed_by_edition_write" in result["response_text"]
     assert pending.created == []

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
+import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.integrations.odoo.profile_schema import ProfileResource, ProfileSection
+from app.integrations.odoo.profile_schema import (
+    ProfileField,
+    ProfileResource,
+    ProfileSection,
+)
 from app.llm.client import LlmClientError, StructuredOutputClient
 from app.llm.structured_output import StructuredOutputError
 from app.routing.taxonomy import Intent, Operation
+
+logger = logging.getLogger(__name__)
 
 
 class ProfileTargetResolution(BaseModel):
@@ -30,8 +38,8 @@ class ProfileTargetResolution(BaseModel):
 
     @model_validator(mode="after")
     def hierarchy_is_consistent(self) -> ProfileTargetResolution:
-        if self.field_keys and self.resource_key is None:
-            raise ValueError("resource_key is required when field_keys are set")
+        if self.field_keys and self.section_key is None:
+            raise ValueError("section_key is required when field_keys are set")
         if self.resource_key is not None and self.section_key is None:
             raise ValueError("section_key is required when resource_key is set")
         return self
@@ -49,6 +57,9 @@ class ProfileTargetOutsideAllowlistError(ProfileTargetResolverError):
 
 
 _SYSTEM_PROMPT = """
+Fields may belong directly to a section. For a direct field, return its
+section_key and field_keys while leaving resource_key null. For a field inside
+a singleton or collection, return its resource_key and owning section_key.
 Bạn resolve mục tiêu hồ sơ tự khai từ câu tiếng Việt sang các key registry.
 Chỉ chọn section_key, resource_key và field_keys có trong candidate allowlist.
 Không được tạo model_name, ORM field, record_id, domain, capability hay endpoint.
@@ -74,12 +85,43 @@ class ProfileTargetResolver:
         resources: tuple[ProfileResource, ...],
         request_id: str | None = None,
     ) -> ProfileTargetResolution:
+        exact = self._resolve_exact_match(
+            original_query,
+            intent,
+            operation,
+            sections,
+            resources,
+        )
+        if exact is not None:
+            self._validate_allowlist(exact, sections, resources)
+            logger.info(
+                "profile_target_resolved request_id=%s source=exact_allowlist "
+                "sections=%s resources=%s fields=%s section_key=%s "
+                "resource_key=%s field_keys=%s confidence=%s "
+                "needs_clarification=%s reason_code=%s",
+                request_id,
+                len(sections),
+                len(resources),
+                sum(len(item.direct_fields) for item in sections)
+                + sum(len(item.fields) for item in resources),
+                exact.section_key,
+                exact.resource_key,
+                exact.field_keys,
+                exact.confidence,
+                exact.needs_clarification,
+                exact.reason_code,
+            )
+            return exact
+        candidate_sections = self._candidate_sections(
+            sections,
+            resources,
+            intent,
+        )
         payload = {
             "original_query": original_query,
             "intent": intent.value,
             "operation": operation.value,
-            "candidate_sections": [item.model_dump(mode="json") for item in sections],
-            "candidate_resources": [item.model_dump(mode="json") for item in resources],
+            "candidate_sections": candidate_sections,
         }
         try:
             result = await self._llm.complete_structured(
@@ -94,7 +136,235 @@ class ProfileTargetResolver:
                 "PROFILE_TARGET_RESOLUTION_FAILED"
             ) from error
         self._validate_allowlist(result, sections, resources)
+        logger.info(
+            "profile_target_resolved request_id=%s sections=%s resources=%s "
+            "fields=%s section_key=%s resource_key=%s field_keys=%s "
+            "confidence=%s needs_clarification=%s reason_code=%s",
+            request_id,
+            len(sections),
+            len(resources),
+            sum(len(item.direct_fields) for item in sections)
+            + sum(len(item.fields) for item in resources),
+            result.section_key,
+            result.resource_key,
+            result.field_keys,
+            result.confidence,
+            result.needs_clarification,
+            result.reason_code,
+        )
         return result
+
+    @classmethod
+    def _resolve_exact_match(
+        cls,
+        original_query: str,
+        intent: Intent,
+        operation: Operation,
+        sections: tuple[ProfileSection, ...],
+        resources: tuple[ProfileResource, ...],
+    ) -> ProfileTargetResolution | None:
+        target = cls._target_text(original_query)
+        if not target:
+            return None
+
+        intent_tokens = set(
+            cls._normalized(intent.value.split(".", 1)[-1]).split()
+        )
+
+        def score(key: str, label: str, aliases: tuple[str, ...]) -> int:
+            values = (key.replace("_", " "), label, *aliases)
+            normalized = [cls._normalized(value) for value in values]
+            semantic = max(
+                (
+                    100
+                    if value == target
+                    else 80
+                    if target in value or value in target
+                    else 0
+                )
+                for value in normalized
+                if value
+            )
+            ranking = max(
+                (
+                    len(intent_tokens.intersection(value.split()))
+                    for value in normalized
+                ),
+                default=0,
+            )
+            return semantic + ranking
+
+        resource_matches = sorted(
+            (
+                (score(item.key, item.label, item.aliases), item)
+                for item in resources
+            ),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        field_matches = sorted(
+            [
+                (score(field.key, field.label, field.aliases), section, None, field)
+                for section in sections
+                for field in section.direct_fields
+            ]
+            + [
+                (score(field.key, field.label, field.aliases), None, resource, field)
+                for resource in resources
+                for field in resource.fields
+            ],
+            key=lambda item: item[0],
+            reverse=True,
+        )
+
+        if not resource_matches or not field_matches:
+            return None
+        best_resource_score, best_resource = resource_matches[0]
+        resource_is_unique = (
+            len(resource_matches) == 1
+            or best_resource_score > resource_matches[1][0]
+        )
+        if (
+            operation is Operation.CREATE
+            and best_resource.resource_type == "collection"
+            and best_resource_score >= 80
+            and resource_is_unique
+        ):
+            return ProfileTargetResolution(
+                section_key=best_resource.section_key,
+                resource_key=best_resource.key,
+                confidence=1,
+                needs_clarification=False,
+                reason_code="EXACT_COLLECTION_MATCH",
+            )
+
+        best_field_score, section, resource, field = field_matches[0]
+        field_is_unique = (
+            len(field_matches) == 1 or best_field_score > field_matches[1][0]
+        )
+        if best_field_score >= 80 and field_is_unique:
+            return ProfileTargetResolution(
+                section_key=(section.key if section else resource.section_key),
+                resource_key=resource.key if resource else None,
+                field_keys=[field.key],
+                confidence=1,
+                needs_clarification=False,
+                reason_code="EXACT_FIELD_MATCH",
+            )
+        if best_resource_score >= 80 and resource_is_unique:
+            return ProfileTargetResolution(
+                section_key=best_resource.section_key,
+                resource_key=best_resource.key,
+                confidence=1,
+                needs_clarification=False,
+                reason_code="EXACT_RESOURCE_MATCH",
+            )
+        return None
+
+    @classmethod
+    def _target_text(cls, query: str) -> str:
+        operation_words = {
+            "sua",
+            "them",
+            "xoa",
+            "cap",
+            "nhat",
+            "thay",
+            "doi",
+            "tao",
+            "bo",
+            "mot",
+        }
+        return " ".join(
+            word
+            for word in cls._normalized(query).split()
+            if word not in operation_words and not word.isdigit()
+        )
+
+    @staticmethod
+    def _normalized(value: str) -> str:
+        folded = unicodedata.normalize("NFD", value.casefold())
+        return " ".join(
+            "".join(
+                character
+                for character in folded
+                if unicodedata.category(character) != "Mn"
+            )
+            .replace("đ", "d")
+            .replace("_", " ")
+            .split()
+        )
+
+    @staticmethod
+    def _candidate_sections(
+        sections: tuple[ProfileSection, ...],
+        resources: tuple[ProfileResource, ...],
+        intent: Intent,
+    ) -> list[dict[str, object]]:
+        """Build a compact, actor-scoped hierarchy without operation filtering."""
+
+        def field_candidate(field: ProfileField) -> dict[str, object]:
+            return {
+                "key": field.key,
+                "label": field.label,
+                "aliases": field.aliases,
+            }
+
+        def resource_candidate(resource: ProfileResource) -> dict[str, object]:
+            return {
+                "key": resource.key,
+                "label": resource.label,
+                "aliases": resource.aliases,
+                "fields": [field_candidate(field) for field in resource.fields],
+            }
+
+        intent_tokens = {
+            token
+            for part in intent.value.split(".", 1)[-1].split("_")
+            for token in (part, part.removesuffix("s"))
+            if token
+        }
+
+        def priority(value: object) -> tuple[bool, str]:
+            searchable = " ".join(
+                str(item)
+                for item in (
+                    getattr(value, "key", ""),
+                    getattr(value, "label", ""),
+                    *getattr(value, "aliases", ()),
+                )
+            ).casefold()
+            return (
+                not any(token in searchable for token in intent_tokens),
+                searchable,
+            )
+
+        ordered_resources = sorted(resources, key=priority)
+        ordered_sections = sorted(sections, key=priority)
+        return [
+            {
+                "key": section.key,
+                "label": section.label,
+                "aliases": section.aliases,
+                "direct_fields": [
+                    field_candidate(field)
+                    for field in sorted(section.direct_fields, key=priority)
+                ],
+                "singleton_resources": [
+                    resource_candidate(resource)
+                    for resource in ordered_resources
+                    if resource.section_key == section.key
+                    and resource.resource_type == "singleton"
+                ],
+                "collection_resources": [
+                    resource_candidate(resource)
+                    for resource in ordered_resources
+                    if resource.section_key == section.key
+                    and resource.resource_type == "collection"
+                ],
+            }
+            for section in ordered_sections
+        ]
 
     @staticmethod
     def _validate_allowlist(
@@ -107,6 +377,15 @@ class ProfileTargetResolver:
         if result.section_key is not None and result.section_key not in section_map:
             raise ProfileTargetOutsideAllowlistError()
         if result.resource_key is None:
+            if result.section_key is None:
+                if result.field_keys:
+                    raise ProfileTargetOutsideAllowlistError()
+                return
+            direct_fields = {
+                item.key for item in section_map[result.section_key].direct_fields
+            }
+            if any(key not in direct_fields for key in result.field_keys):
+                raise ProfileTargetOutsideAllowlistError()
             return
         resource = resource_map.get(result.resource_key)
         if resource is None or resource.section_key != result.section_key:

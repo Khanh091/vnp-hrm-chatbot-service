@@ -24,6 +24,10 @@ _QUERY_OR_COMMAND = re.compile(
     r"lịch sử|thông tin|tạo|hủy|cập nhật)\b",
     re.I,
 )
+_WRITE_COMMAND = re.compile(
+    r"\b(?:sửa|thêm|xóa|xoá|tạo|cập nhật|thay đổi)\b",
+    re.I,
+)
 _DATE_ANSWER = re.compile(
     r"^(?:"
     r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
@@ -104,6 +108,7 @@ class DialogTurnManager:
             return TurnType.NEW_QUERY_OVERRIDE
         if _CLEAR_NEW_INTENT.search(text) and (
             _QUERY_OR_COMMAND.search(text)
+            or _WRITE_COMMAND.search(text)
             or expected_field in {"date", "date_from", "date_to"}
         ):
             return TurnType.NEW_QUERY_OVERRIDE
