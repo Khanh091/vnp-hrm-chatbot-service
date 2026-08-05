@@ -68,6 +68,7 @@ class SubjectType(str, Enum):
 class Intent(str, Enum):
     PROFILE_BASIC = "profile.basic"
     PROFILE_SUMMARY = "profile.summary"
+    PROFILE_SELF_DECLARATION_STATUS = "profile.self_declaration_status"
     PROFILE_EMPLOYEE_CODE = "profile.employee_code"
     PROFILE_JOB_TITLE = "profile.job_title"
     PROFILE_DEPARTMENT = "profile.department"

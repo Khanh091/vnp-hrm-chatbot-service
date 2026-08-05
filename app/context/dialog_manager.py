@@ -30,7 +30,7 @@ _WRITE_COMMAND = re.compile(
 )
 _GENERIC_NEW_QUERY = re.compile(
     r"^\s*(?:sửa|thêm|bổ sung|xóa|xoá|tạo|cập nhật|thay đổi|"
-    r"cho tôi xem|xem|thông tin|danh sách|tất cả)\b",
+    r"cho tôi xem|xem|thông tin|trạng thái|tình trạng|danh sách|tất cả)\b",
     re.I,
 )
 _DATE_ANSWER = re.compile(

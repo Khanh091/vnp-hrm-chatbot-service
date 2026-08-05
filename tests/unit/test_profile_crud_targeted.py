@@ -6,6 +6,7 @@ import pytest
 from app.integrations.odoo.profile_schema import (
     ProfileField,
     ProfileResource,
+    ProfileSchemaError,
     ProfileSection,
     ProfileSnapshot,
     ProfileWriteMode,
@@ -107,8 +108,9 @@ RESOURCES = (
 
 
 class FakeSchema:
-    def __init__(self) -> None:
+    def __init__(self, save_error: ProfileSchemaError | None = None) -> None:
         self.saved_drafts: list[dict[str, Any]] = []
+        self.save_error = save_error
 
     async def get_sections(self, operation, **kwargs):
         return SECTIONS
@@ -162,6 +164,8 @@ class FakeSchema:
 
     async def save_draft(self, payload, **kwargs):
         self.saved_drafts.append(payload)
+        if self.save_error is not None:
+            raise self.save_error
         return SimpleNamespace(
             message=("Các thay đổi đã được lưu vào hồ sơ tự khai nhưng "
                      "chưa gửi phê duyệt."),
@@ -206,8 +210,9 @@ async def run_target(*, section: str, resource: str | None,
                      collected: dict[str, Any] | None = None,
                      previous_workflow: dict[str, Any] | None = None,
                      answer_field: str | None = None,
-                     answer_type: str = "option_select"):
-    schema = FakeSchema()
+                     answer_type: str = "option_select",
+                     schema_error: ProfileSchemaError | None = None):
+    schema = FakeSchema(schema_error)
     pending = FakePending()
     context = SimpleNamespace(
         profile_schema_client=schema, pending_action_service=pending,
@@ -276,7 +281,7 @@ async def test_3_contact_resource_lists_only_contact_fields():
     assert result["response_data"]["clarification"]["input_type"] == "resource_form"
     options = result["response_data"]["clarification"]["options"]
     assert {item["value"] for item in options} == {
-        "edit:mobile_phone", "edit:work_email", "cancel"
+        "edit:mobile_phone", "edit:work_email", "finish", "cancel"
     }
 
 
@@ -298,7 +303,8 @@ async def test_5_employment_exposes_all_edition_writable_fields():
         for item in result["response_data"]["clarification"]["options"]
     }
     assert values == {
-        "edit:employee_type", "edit:manager", "edit:main_job", "cancel"
+        "edit:employee_type", "edit:manager", "edit:main_job", "finish",
+        "cancel",
     }
     assert "department" not in values
 
@@ -367,7 +373,9 @@ async def test_9_direct_update_stays_draft_until_submit():
         previous_workflow=edited["workflow_data"],
         answer_field="profile_edit_action",
     )
-    assert reviewed["response_data"]["clarification"]["input_type"] == "edit_session_actions"
+    assert reviewed["response_data"]["clarification"]["input_type"] == (
+        "edit_session_actions"
+    )
     assert pending.created == []
 
     confirmed, pending, _ = await run_target(
@@ -538,8 +546,12 @@ def test_16_operation_prefix_does_not_remove_words_inside_target():
         fields=(course,),
     )
 
+    query = (
+        "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh "
+        "\u0111\u00e0o t\u1ea1o b\u1ed3i d\u01b0\u1ee1ng"
+    )
     resolution = ProfileTargetResolver._resolve_exact_match(
-        "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh \u0111\u00e0o t\u1ea1o b\u1ed3i d\u01b0\u1ee1ng",
+        query,
         Intent.PROFILE_EDUCATION,
         Operation.CREATE,
         (EDUCATION,),
@@ -548,6 +560,123 @@ def test_16_operation_prefix_does_not_remove_words_inside_target():
 
     assert resolution is not None
     assert resolution.resource_key == training.key
-    assert "dao tao" in ProfileTargetResolver._target_text(
-        "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh \u0111\u00e0o t\u1ea1o b\u1ed3i d\u01b0\u1ee1ng"
+    assert "dao tao" in ProfileTargetResolver._target_text(query)
+
+
+@pytest.mark.asyncio
+async def test_17_resource_finish_keeps_draft_changes_and_opens_review():
+    form, _, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
+    ask_value, _, _ = await run_target(
+        section=BASIC.key,
+        resource=CONTACT.key,
+        collected={"profile_edit_action": "edit:mobile_phone"},
+        previous_workflow=form["workflow_data"],
+        answer_field="profile_edit_action",
     )
+    edited, _, _ = await run_target(
+        section=BASIC.key,
+        resource=CONTACT.key,
+        collected={MOBILE.key: "0987654321"},
+        previous_workflow=ask_value["workflow_data"],
+    )
+    reviewed, pending, _ = await run_target(
+        section=BASIC.key,
+        resource=CONTACT.key,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=edited["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+
+    clarification = reviewed["response_data"]["clarification"]
+    assert clarification["input_type"] == "edit_session_actions"
+    assert reviewed["workflow_data"]["profile_changes"] == {
+        MOBILE.key: "0987654321"
+    }
+    assert pending.created == []
+
+
+def test_18_small_typo_uses_registry_alias_without_hardcoded_phrase():
+    certificate_name = field(
+        "certificate_name", "T\u00ean v\u0103n b\u1eb1ng/ch\u1ee9ng ch\u1ec9"
+    )
+    certificates = ProfileResource(
+        key="certificate_records",
+        label="V\u0103n b\u1eb1ng, ch\u1ee9ng ch\u1ec9",
+        aliases=("ch\u1ee9ng ch\u1ec9",),
+        section_key=EDUCATION.key,
+        resource_type="collection",
+        readable=True,
+        creatable=True,
+        updatable=True,
+        deletable=True,
+        fields=(certificate_name,),
+    )
+
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "th\u00eam 1 ch\u1ee9ng ch\u1ee7",
+        Intent.PROFILE_CERTIFICATES,
+        Operation.CREATE,
+        (EDUCATION,),
+        (certificates,),
+    )
+
+    assert resolution is not None
+    assert resolution.resource_key == certificates.key
+    assert resolution.reason_code == "EXACT_COLLECTION_MATCH"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_key"),
+    (("sửa giới tính", "gender"), ("sửa ngày sinh", "birth_date")),
+)
+def test_19_unqualified_duplicate_label_prefers_direct_section_field(
+    query, expected_key,
+):
+    relation_field = field(expected_key, {
+        "gender": "Giới tính", "birth_date": "Ngày sinh"
+    }[expected_key])
+    relations = ProfileResource(
+        key="family_relations", label="Quan hệ thân nhân",
+        aliases=("người thân",), section_key="family",
+        resource_type="collection", readable=True, creatable=True,
+        updatable=True, deletable=True, fields=(relation_field,),
+    )
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        query, Intent.PROFILE_BASIC, Operation.UPDATE,
+        (BASIC,), (CONTACT, relations),
+    )
+    assert resolution is not None
+    assert resolution.resource_key is None
+    assert resolution.field_keys == [expected_key]
+    assert resolution.reason_code == "DIRECT_FIELD_TIE_BREAK"
+
+
+@pytest.mark.asyncio
+async def test_20_invalid_draft_save_keeps_review_controls_and_changes():
+    reviewed, _, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        fields=(MOBILE.key,), changes={MOBILE.key: "0987654321"},
+        collected={"profile_edit_action": "finish"},
+        answer_field="profile_edit_action",
+    )
+    failed, pending, schema = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={"profile_edit_action": "save_draft"},
+        previous_workflow=reviewed["workflow_data"],
+        answer_field="profile_edit_action",
+        schema_error=ProfileSchemaError(
+            "PROFILE_INVALID_VALUE",
+            "Ngày vào đơn vị phải nhỏ hơn ngày chính thức",
+        ),
+    )
+    clarification = failed["response_data"]["clarification"]
+    assert clarification["input_type"] == "resource_form"
+    assert {item["value"] for item in clarification["options"]} == {
+        "edit:mobile_phone", "edit:work_email", "cancel",
+    }
+    assert "Ngày vào đơn vị" in failed["response_text"]
+    assert failed["workflow_data"]["profile_changes"] == {
+        MOBILE.key: "0987654321"
+    }
+    assert pending.created == []
+    assert len(schema.saved_drafts) == 1

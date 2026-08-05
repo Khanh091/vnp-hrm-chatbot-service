@@ -20,9 +20,11 @@ from app.routing.schemas import (
     Domain,
     Operation,
     QueryClassification,
+    QueryRoute,
     RouteType,
     SubjectScope,
 )
+from app.routing.taxonomy import Intent
 
 
 class FakeStructuredClient:
@@ -115,6 +117,30 @@ async def test_classifier_supports_multi_domain() -> None:
 
     assert result.secondary_domains == [Domain.LEAVE]
     assert result.operation_hint is Operation.EXPLAIN
+
+
+@pytest.mark.asyncio
+async def test_explicit_unclassified_write_falls_through_to_profile_registry() -> None:
+    unsupported = QueryClassification(
+        route=QueryRoute.UNSUPPORTED,
+        domain=None,
+        intent=None,
+        operation=Operation.NONE,
+        scope=SubjectScope.GENERAL,
+        confidence=0.4,
+    )
+
+    result = await QueryClassifier(FakeStructuredClient(unsupported)).classify(
+        QueryNormalizer().normalize(
+            "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh c\u00f4ng t\u00e1c"
+        )
+    )
+
+    assert result.route is QueryRoute.TASK
+    assert result.domain is Domain.PROFILE
+    assert result.intent is Intent.PROFILE_SUMMARY
+    assert result.operation is Operation.CREATE
+    assert result.reason_code == "PROFILE_WRITE_REGISTRY_FALLBACK"
 
 
 @pytest.mark.asyncio

@@ -85,6 +85,7 @@ _CAPABILITIES: tuple[CapabilityDefinition, ...] = (
         (
             Intent.PROFILE_BASIC,
             Intent.PROFILE_SUMMARY,
+            Intent.PROFILE_SELF_DECLARATION_STATUS,
             Intent.PROFILE_EMPLOYEE_CODE,
             Intent.DIRECTORY_EMPLOYEE_PROFILE,
         ),

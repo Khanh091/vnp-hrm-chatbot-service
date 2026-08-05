@@ -186,3 +186,13 @@ def test_leave_type_options_survive_later_reason_turn() -> None:
     assert updated["clarification_options"] == [
         {"value": 3, "label": "Không lương"},
     ]
+
+
+def test_profile_status_query_overrides_active_profile_edit_slot() -> None:
+    manager = DialogTurnManager()
+    assert manager.detect(
+        message="trạng thái hồ sơ tự khai",
+        structured_clarification=None,
+        expected_field="profile_edit_action",
+        expected_input_type="text",
+    ) is TurnType.NEW_QUERY_OVERRIDE

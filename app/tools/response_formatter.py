@@ -67,6 +67,11 @@ def _format_profile_summary(data: dict[str, Any]) -> str:
     )
 
 
+def _format_profile_self_declaration_status(data: dict[str, Any]) -> str:
+    label = _first(data, "label", "state")
+    return f"Hồ sơ tự khai của bạn hiện ở trạng thái: {label}."
+
+
 def _format_profile_employment(data: dict[str, Any]) -> str:
     manager = data.get("manager", data.get("direct_manager"))
     employment_status = data.get(
@@ -304,6 +309,9 @@ def _format_leave_balance(data: dict[str, Any]) -> str:
 class ToolResponseFormatter:
     def __init__(self) -> None:
         self._formatters: dict[str, Formatter] = {
+            "profile_get_self_declaration_status": (
+                _format_profile_self_declaration_status
+            ),
             "profile_get_summary": _format_profile_summary,
             "profile_get_employment": _format_profile_employment,
             "profile_get_contact": _format_profile_contact,

@@ -7,6 +7,7 @@ from app.routing.intent_taxonomy import (
     canonicalize_classification,
 )
 from app.routing.schemas import (
+    Domain,
     NormalizedQuery,
     QueryClassification,
     RuleHints,
@@ -94,6 +95,31 @@ def repair_classification(
     subject: SubjectMention,
     hints: RuleHints | None = None,
 ) -> QueryClassification:
+    registry_fallback = False
+    if (
+        hints is not None
+        and hints.operation_hint in {
+            Operation.CREATE,
+            Operation.UPDATE,
+            Operation.DELETE,
+        }
+        and hints.domain_hint is None
+        and classification.intent is None
+        and classification.domain is None
+        and classification.route is QueryRoute.UNSUPPORTED
+    ):
+        classification = classification.model_copy(
+            update={
+                "route": QueryRoute.TASK,
+                "domain": Domain.PROFILE,
+                "intent": Intent.PROFILE_SUMMARY,
+                "operation": hints.operation_hint,
+                "scope": SubjectScope.SELF,
+                "confidence": hints.confidence,
+                "reason_code": "PROFILE_WRITE_REGISTRY_FALLBACK",
+            }
+        )
+        registry_fallback = True
     if (
         hints is not None
         and hints.operation_hint is not None
@@ -103,7 +129,12 @@ def repair_classification(
         classification = classification.model_copy(
             update={"operation": hints.operation_hint}
         )
-    return canonicalize_classification(classification, subject)
+    classification = canonicalize_classification(classification, subject)
+    if registry_fallback:
+        classification = classification.model_copy(
+            update={"reason_code": "PROFILE_WRITE_REGISTRY_FALLBACK"}
+        )
+    return classification
 
 
 __all__ = [

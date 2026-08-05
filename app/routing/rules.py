@@ -26,6 +26,16 @@ class SemanticRule:
 
 _SEMANTIC_RULES = (
     SemanticRule(
+        concept="profile_self_declaration_status",
+        pattern=re.compile(
+            r"\b(?:trang thai|tinh trang)\b.{0,32}"
+            r"\b(?:ho so tu khai|ho so khai bao|tu khai)\b"
+        ),
+        candidate_intents=(Intent.PROFILE_SELF_DECLARATION_STATUS,),
+        confidence=0.99,
+        is_exclusive=True,
+    ),
+    SemanticRule(
         concept="attendance_full_history",
         pattern=re.compile(
             r"\b(?:(?:toan bo|tat ca|day du) "

@@ -46,6 +46,28 @@ def _profile_tool(
 
 PROFILE_TOOLS = (
     _profile_tool(
+        name="profile_get_self_declaration_status",
+        capability=Intent.PROFILE_SELF_DECLARATION_STATUS.value,
+        intents=frozenset({Intent.PROFILE_SELF_DECLARATION_STATUS}),
+        description=(
+            "Lấy trạng thái workflow hiện tại của hồ sơ tự khai/edition của "
+            "chính người dùng, không phải trạng thái làm việc của nhân viên."
+        ),
+        endpoint="status",
+        examples=(
+            "Trạng thái hồ sơ tự khai của tôi.",
+            "Hồ sơ tự khai đang chờ xác nhận hay đang cập nhật?",
+            "Tình trạng hồ sơ tự khai hiện tại.",
+            "Kiểm tra hồ sơ khai báo của tôi đang ở bước nào.",
+            "Hồ sơ tự khai đã được xác nhận chưa?",
+        ),
+        negative_examples=(
+            "Trạng thái làm việc của tôi.",
+            "Tóm tắt hồ sơ nhân viên của tôi.",
+            "Hợp đồng của tôi còn hiệu lực không?",
+        ),
+    ),
+    _profile_tool(
         name="profile_get_summary",
         capability="profile.summary",
         intents=frozenset(

@@ -564,7 +564,9 @@ async def resolve_profile_write_node(
                     missing_profile_slots=[item.key for item in missing],
                 )
         elif operation is Operation.UPDATE:
-            if not selected_fields:
+            if not selected_fields and edit_action not in {
+                "finish", "submit", "save_draft"
+            }:
                 selectable_fields = list(operation_fields)
                 selectable_keys = {item.key for item in selectable_fields}
                 selectable_fields.extend(
@@ -644,7 +646,10 @@ async def resolve_profile_write_node(
                     workflow_data, resource, list(operation_fields),
                     record_reference, {}, current_snapshot,
                     expected_version,
-                    notice="Giá trị bạn chọn không thay đổi; bản nháp chưa có cập nhật mới.",
+                    notice=(
+                        "Giá trị bạn chọn không thay đổi; bản nháp chưa có "
+                        "cập nhật mới."
+                    ),
                 )
         elif operation is Operation.DELETE:
             current = await schema.get_record(
@@ -679,6 +684,17 @@ async def resolve_profile_write_node(
             return await _save_profile_draft(
                 state, runtime, started, classification, resource, operation,
                 record_id, expected_version, changes, workflow_data,
+            )
+        if edit_action == "finish" and not changes:
+            return await _profile_draft_form(
+                state, runtime, started, classification, operation,
+                workflow_data, resource, list(operation_fields),
+                record_reference, changes, current_snapshot,
+                expected_version,
+                notice=(
+                    "Bạn chưa nhập thay đổi nào. Hãy chọn một trường để sửa "
+                    "trước khi hoàn tất."
+                ),
             )
         if edit_action == "finish":
             return await _profile_edit_summary(
@@ -917,6 +933,7 @@ async def _profile_draft_form(
     expected_version: str | None,
     *,
     notice: str | None = None,
+    allow_finish: bool = True,
 ) -> dict[str, object]:
     editable = [field for field in fields if field.allows(operation)]
     options = [
@@ -924,7 +941,7 @@ async def _profile_draft_form(
          "description": field.description}
         for field in editable
     ]
-    if changes:
+    if allow_finish:
         options.append({"value": "finish", "label": "Hoàn tất",
                         "description": None})
     options.append({"value": "cancel", "label": "Hủy",
@@ -968,9 +985,10 @@ async def _direct_draft_form(
     expected_version: str | None,
     *,
     notice: str | None = None,
+    allow_finish: bool = True,
 ) -> dict[str, object]:
     options = []
-    if changes:
+    if changes and allow_finish:
         options.append({"value": "finish", "label": "Hoàn tất",
                         "description": None})
     options.extend((
@@ -1016,6 +1034,7 @@ async def _profile_edit_summary(
     workflow_data: dict[str, Any],
     *,
     section: ProfileSection | None = None,
+    notice: str | None = None,
 ) -> dict[str, object]:
     workflow_data.update({
         "profile_current_snapshot": current_snapshot,
@@ -1031,7 +1050,7 @@ async def _profile_edit_summary(
         field_keys=[field.key for field in fields if field.key in changes],
         record_reference=None, changes=changes,
         slot_name="profile_edit_action", input_type="edit_session_actions",
-        text="Hãy chọn lưu nháp hoặc gửi xác nhận.",
+        text=notice or "Hãy chọn lưu nháp hoặc gửi xác nhận.",
         options=[
             {"value": "save_draft", "label": "Lưu nháp", "description": None},
             {"value": "submit", "label": "Gửi xác nhận", "description": None},
@@ -1072,11 +1091,49 @@ async def _save_profile_draft(
     }
     payload = {key: value for key, value in payload.items()
                if value is not None}
-    result = await runtime.context.profile_schema_client.save_draft(
-        payload,
-        odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
-        request_id=state["request_id"],
-    )
+    try:
+        result = await runtime.context.profile_schema_client.save_draft(
+            payload,
+            odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
+            request_id=state["request_id"],
+        )
+    except ProfileSchemaError as error:
+        if error.reason_code != "PROFILE_INVALID_VALUE":
+            raise
+        # An ORM constraint may reject a validly shaped canonical payload (for
+        # example a start date later than its corresponding official date).
+        # Keep the edit session alive and re-emit its actions so the user can
+        # correct or cancel the draft instead of being left in a dead dialog.
+        candidate_fields = list(
+            section.direct_fields if section is not None else resource.fields
+        )
+        draft_fields = [
+            field for field in candidate_fields if field.key in changes
+        ] or candidate_fields
+        current_snapshot = dict(
+            workflow_data.get("profile_current_snapshot") or {}
+        )
+        detail = str(error).strip().rstrip(".")
+        notice = (
+            f"Không thể lưu bản nháp: {detail}. "
+            "Các thay đổi vẫn được giữ; bạn có thể tiếp tục chỉnh sửa hoặc hủy."
+        )
+        workflow_data["profile_save_error"] = {
+            "code": error.reason_code,
+            "message": detail,
+        }
+        if section is not None:
+            return await _direct_draft_form(
+                state, runtime, started, classification, workflow_data,
+                section, draft_fields, None, changes, current_snapshot,
+                expected_version, notice=notice, allow_finish=False,
+            )
+        return await _profile_draft_form(
+            state, runtime, started, classification, operation,
+            workflow_data, resource, list(resource.fields), None, changes,
+            current_snapshot, expected_version, notice=notice,
+            allow_finish=False,
+        )
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),

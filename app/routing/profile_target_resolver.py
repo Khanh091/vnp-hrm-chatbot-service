@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -185,7 +186,13 @@ class ProfileTargetResolver:
                     if value == target
                     else 80
                     if target in value or value in target
-                    else 0
+                    else (
+                        70 + round(20 * similarity)
+                        if (similarity := SequenceMatcher(
+                            None, target, value
+                        ).ratio()) >= 0.82
+                        else 0
+                    )
                 )
                 for value in normalized
                 if value
@@ -229,6 +236,18 @@ class ProfileTargetResolver:
             len(resource_matches) == 1
             or best_resource_score > resource_matches[1][0]
         )
+        tied_resources = [
+            item for item in resource_matches if item[0] == best_resource_score
+        ]
+        if best_resource_score >= 80 and len(tied_resources) > 1:
+            owning_sections = {item.section_key for _, item in tied_resources}
+            if len(owning_sections) == 1:
+                return ProfileTargetResolution(
+                    section_key=next(iter(owning_sections)),
+                    confidence=1,
+                    needs_clarification=True,
+                    reason_code="AMBIGUOUS_RESOURCE_MATCH",
+                )
         if (
             operation is Operation.CREATE
             and best_resource.resource_type == "collection"
@@ -251,6 +270,40 @@ class ProfileTargetResolver:
             item for item in field_matches if item[0] == best_field_score
         ]
         if best_field_score >= 80 and len(tied_fields) > 1:
+            # Labels such as "Ngày sinh" and "Giới tính" legitimately occur
+            # both as a direct employee field and inside collection rows.  A
+            # resource-qualified query selects that owner; otherwise the sole
+            # direct section field is the most specific self-profile target.
+            contextual_resources = {
+                item.key
+                for score_value, item in resource_matches
+                if score_value >= 80
+            }
+            contextual = [
+                item for item in tied_fields
+                if item[2] is not None and item[2].key in contextual_resources
+            ]
+            if len(contextual) == 1:
+                _, _, matched_resource, matched_field = contextual[0]
+                return ProfileTargetResolution(
+                    section_key=matched_resource.section_key,
+                    resource_key=matched_resource.key,
+                    field_keys=[matched_field.key],
+                    confidence=1,
+                    needs_clarification=False,
+                    reason_code="CONTEXTUAL_FIELD_MATCH",
+                )
+            direct = [item for item in tied_fields if item[1] is not None]
+            if not contextual_resources and len(direct) == 1:
+                _, matched_section, _, matched_field = direct[0]
+                return ProfileTargetResolution(
+                    section_key=matched_section.key,
+                    resource_key=None,
+                    field_keys=[matched_field.key],
+                    confidence=1,
+                    needs_clarification=False,
+                    reason_code="DIRECT_FIELD_TIE_BREAK",
+                )
             owners = {
                 (
                     item_section.key if item_section else item_resource.section_key,

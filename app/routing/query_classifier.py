@@ -121,7 +121,12 @@ class QueryClassifier:
             and result.route.value != "task"
         ):
             logger.warning(
-                "query_classification_failed reason_code=WRITE_ROUTE_MISMATCH"
+                "query_classification_failed reason_code=WRITE_ROUTE_MISMATCH "
+                "domain=%s intent=%s operation=%s route=%s",
+                result.domain.value if result.domain else None,
+                result.intent.value if result.intent else None,
+                result.operation.value,
+                result.route.value,
             )
             raise QueryClassifierError(
                 "Classifier contradicted an explicit write action",
