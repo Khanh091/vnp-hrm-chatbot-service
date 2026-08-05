@@ -115,6 +115,8 @@ class StructuredAnswerType(str, Enum):
     DATE_SELECT = "date_select"
     CONFIRM = "confirm"
     CANCEL = "cancel"
+    PROFILE_FIELD_EDIT = "profile_field_edit"
+    PROFILE_EDIT_ACTION = "profile_edit_action"
 
 
 class StructuredAnswer(BaseModel):
@@ -124,6 +126,10 @@ class StructuredAnswer(BaseModel):
     slot_name: str | None = Field(default=None, min_length=1, max_length=128)
     selected_value: str | None = Field(default=None, min_length=1, max_length=500)
     display_label: str | None = Field(default=None, min_length=1, max_length=500)
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
+    field_key: str | None = Field(default=None, min_length=1, max_length=128)
+    value: str | int | float | bool | None = None
+    action: str | None = Field(default=None, min_length=1, max_length=32)
 
     @model_validator(mode="after")
     def validate_shape(self) -> "StructuredAnswer":
@@ -147,6 +153,19 @@ class StructuredAnswer(BaseModel):
                 date.fromisoformat(self.selected_value or "")
             except ValueError as error:
                 raise ValueError("selected_value must be an ISO date") from error
+        if self.type is StructuredAnswerType.PROFILE_FIELD_EDIT:
+            if not self.session_id or not self.field_key:
+                raise ValueError("session_id and field_key are required")
+            if self.action is not None:
+                raise ValueError("action is not used for field editing")
+        if self.type is StructuredAnswerType.PROFILE_EDIT_ACTION:
+            if not self.session_id or self.action not in {
+                "finish", "cancel", "save_draft", "submit", "continue",
+                "switch_save_draft", "switch_discard",
+            }:
+                raise ValueError("invalid profile edit action")
+            if self.field_key is not None or self.value is not None:
+                raise ValueError("field_key and value are not used for actions")
         return self
 
 

@@ -115,3 +115,42 @@ def test_6_slot_name_must_match_expected_slot() -> None:
             expected_field="leave_type_id",
             allowed_options=OPTIONS,
         )
+
+
+def test_7_profile_field_edit_is_bounded_to_session_and_field() -> None:
+    request = ChatRequest.model_validate({
+        "conversation_id": "conversation-profile",
+        "structured_answer": {
+            "type": "profile_field_edit",
+            "session_id": "profile-session-1",
+            "field_key": "mobile_phone",
+            "value": "0987654321",
+            "display_label": "0987654321",
+        },
+    })
+    assert request.structured_answer.field_key == "mobile_phone"
+    assert request.structured_answer.value == "0987654321"
+
+
+def test_8_profile_edit_action_rejects_unknown_action() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest.model_validate({
+            "conversation_id": "conversation-profile",
+            "structured_answer": {
+                "type": "profile_edit_action",
+                "session_id": "profile-session-1",
+                "action": "execute_now",
+            },
+        })
+
+
+def test_9_profile_override_actions_are_bounded() -> None:
+    request = ChatRequest.model_validate({
+        "conversation_id": "conversation-profile",
+        "structured_answer": {
+            "type": "profile_edit_action",
+            "session_id": "profile-session-1",
+            "action": "switch_discard",
+        },
+    })
+    assert request.structured_answer.action == "switch_discard"

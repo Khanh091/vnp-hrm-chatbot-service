@@ -51,6 +51,7 @@ from app.orchestration.routes import (
     route_after_argument_resolution,
     route_after_clarification_merge,
     route_after_classification,
+    route_after_profile_write,
     route_after_retrieval,
     route_after_selection,
     route_after_turn_detection,
@@ -124,13 +125,15 @@ def build_chat_graph(checkpointer: Any = None) -> Any:
     )
     for node in (
         "ask_clarification",
-        "resolve_profile_write",
         "create_confirmation",
         "cancel_pending_action",
         "execute_read_tool",
         "execute_write_tool",
     ):
         builder.add_edge(node, "format_response")
+    builder.add_conditional_edges(
+        "resolve_profile_write", route_after_profile_write
+    )
     builder.add_edge("format_response", "persist_conversation")
     builder.add_edge("persist_conversation", END)
     return builder.compile(checkpointer=checkpointer)
@@ -199,6 +202,8 @@ class ChatGraphWorkflow:
             "current_step": 0,
             "stage_timings": {},
             "graph_events": [],
+            "resume_deferred_query": False,
+            "deferred_notice": None,
         }
         try:
             output = await self._graph.ainvoke(

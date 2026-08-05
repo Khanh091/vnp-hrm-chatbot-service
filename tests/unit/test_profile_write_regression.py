@@ -17,8 +17,10 @@ from app.integrations.odoo.profile_schema import (
 from app.orchestration.nodes.detect_turn_type import detect_turn_type_node
 from app.orchestration.nodes.resolve_profile_write import (
     _merge_profile_target,
+    _resume_deferred_profile_query,
     resolve_profile_write_node,
 )
+from app.orchestration.routes import route_after_profile_write
 from app.orchestration.state import TurnType
 from app.routing.profile_target_resolver import (
     ProfileTargetResolution,
@@ -188,11 +190,13 @@ class _Schema:
 class _Conversations:
     def __init__(self) -> None:
         self.cleared: list[tuple[str, int]] = []
+        self.updates: list[dict[str, Any]] = []
 
     async def load_owned(self, *args: Any, **kwargs: Any):
         return object()
 
     async def update(self, *args: Any, **kwargs: Any) -> None:
+        self.updates.append(kwargs)
         return None
 
     async def clear_active_workflow(self, conversation_id: str, actor: int):
@@ -349,9 +353,11 @@ async def test_4_certificate_create_resolves_collection_and_select_slot() -> Non
         ),
     )
     clarification = result["response_data"]["clarification"]
-    assert clarification["slot_name"] == CERTIFICATE_TYPE.key
-    assert clarification["input_type"] == "searchable_select"
-    assert clarification["options"]
+    assert clarification["slot_name"] == "profile_edit_action"
+    assert clarification["input_type"] == "record_form"
+    required = {item["field_key"] for item in clarification["fields"]
+                if item["required"]}
+    assert CERTIFICATE_TYPE.key in required
     collections = payload["candidate_sections"][1]["collection_resources"]
     assert collections[0]["label"] == CERTIFICATES.label
 
@@ -451,3 +457,77 @@ async def test_8_ambiguous_profile_write_still_asks_section() -> None:
     assert result["response_data"]["clarification"]["slot_name"] == (
         "profile_section_key"
     )
+
+
+@pytest.mark.asyncio
+async def test_9_new_query_with_profile_draft_is_guarded_without_losing_session(
+) -> None:
+    conversations = _Conversations()
+    state = {
+        "conversation_id": "conversation-guard",
+        "user_message": "thông tin sức khỏe của tôi",
+        "action_type": None,
+        "clarification": None,
+        "conversation_status": ConversationStatus.AWAITING_CLARIFICATION.value,
+        "pending_tool_name": "profile_crud_workflow",
+        "workflow_data": {
+            "current_field": "profile_edit_action",
+            "profile_edit_session_id": "profile-contact",
+            "profile_changes": {"work_email": "new@vnpt.vn"},
+            "clarification_metadata": {
+                "input_type": "edit_session_actions",
+                "title": "Thông tin liên hệ",
+                "fields": [],
+            },
+        },
+        "trusted_context": {"odoo_user_id": 7},
+        "stage_timings": {},
+        "graph_events": [],
+        "current_step": 0,
+    }
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(
+            conversation_service=conversations,
+            pending_action_service=_Pending(),
+            dialog_turn_manager=DialogTurnManager(),
+        )
+    )
+    update = await detect_turn_type_node(state, runtime)
+    assert update["turn_type"] is TurnType.PROFILE_OVERRIDE_GUARD
+    assert conversations.cleared == []
+    workflow = update["workflow_data"]
+    assert workflow["profile_deferred_query"] == "thông tin sức khỏe của tôi"
+    assert workflow["profile_changes"] == {"work_email": "new@vnpt.vn"}
+    assert [item["value"] for item in workflow["clarification_options"]] == [
+        "continue", "switch_save_draft", "switch_discard",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_10_discard_override_resumes_exact_deferred_query() -> None:
+    conversations = _Conversations()
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(conversation_service=conversations)
+    )
+    state = {
+        "conversation_id": "conversation-switch",
+        "request_id": "request-switch",
+        "trusted_context": {"odoo_user_id": 7},
+        "stage_timings": {},
+        "graph_events": [],
+        "current_step": 0,
+    }
+    update = await _resume_deferred_profile_query(
+        state,
+        runtime,
+        0.0,
+        {
+            "profile_deferred_query": "tất cả chứng chỉ của tôi",
+            "profile_changes": {"work_email": "new@vnpt.vn"},
+        },
+        save_draft=False,
+    )
+    assert update["user_message"] == "tất cả chứng chỉ của tôi"
+    assert update["profile_changes"] == {}
+    assert conversations.cleared == [("conversation-switch", 7)]
+    assert route_after_profile_write(update) == "normalize_query"

@@ -23,6 +23,7 @@ class TurnType(str, Enum):
     WORKFLOW_CANCEL = "workflow_cancel"
     CONFIRMATION_ACCEPT = "confirmation_accept"
     CONFIRMATION_CANCEL = "confirmation_cancel"
+    PROFILE_OVERRIDE_GUARD = "profile_override_guard"
 
 
 class WorkflowStatus(str, Enum):
@@ -95,6 +96,8 @@ class ChatGraphState(TypedDict, total=False):
     current_step: int
     stage_timings: dict[str, float]
     graph_events: list[dict[str, Any]]
+    resume_deferred_query: bool
+    deferred_notice: str | None
 
 
 class ChatStageTimings(BaseModel):

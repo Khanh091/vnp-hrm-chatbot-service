@@ -4,6 +4,7 @@ import asyncio
 import unicodedata
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from langgraph.runtime import Runtime
 
@@ -74,6 +75,15 @@ async def resolve_profile_write_node(
         structured_answer.get("field")
         if isinstance(structured_answer, dict) else None
     )
+    change_labels = dict(workflow_data.get("profile_change_labels", {}))
+    if (
+        isinstance(structured_answer, dict)
+        and structured_answer.get("answer_type") == "profile_field_edit"
+        and answer_field
+        and structured_answer.get("label") is not None
+    ):
+        change_labels[str(answer_field)] = str(structured_answer["label"])
+    workflow_data["profile_change_labels"] = change_labels
     edit_action = (
         str(collected.get("profile_edit_action"))
         if answer_field == "profile_edit_action"
@@ -81,6 +91,18 @@ async def resolve_profile_write_node(
         else None
     )
     workflow_data["profile_edit_action"] = edit_action
+    if edit_action == "continue":
+        workflow_data.pop("profile_deferred_query", None)
+        if workflow_data.get("profile_edit_status") == "OVERRIDE_GUARD":
+            workflow_data["profile_edit_status"] = "EDITING"
+    if edit_action in {"switch_save_draft", "switch_discard"}:
+        return await _resume_deferred_profile_query(
+            state,
+            runtime,
+            started,
+            workflow_data,
+            save_draft=edit_action == "switch_save_draft",
+        )
 
     if (
         isinstance(structured_answer, dict)
@@ -108,6 +130,11 @@ async def resolve_profile_write_node(
             record_id = None
         else:
             workflow_data["profile_record_id"] = record_id
+            # Record selection opens the complete bounded record form.  The
+            # user chooses the field there; do not auto-open the resolver's
+            # first matching field.
+            field_keys = []
+            workflow_data["profile_field_keys"] = []
     elif isinstance(selected_record_id, str) and selected_record_id.strip():
         # A free-text follow-up is treated as a reference, never as an ORM id.
         record_reference = selected_record_id.strip()
@@ -416,6 +443,9 @@ async def resolve_profile_write_node(
                 raise ProfileTargetOutsideAllowlistError()
             field_keys = [requested_field]
             workflow_data["profile_field_keys"] = field_keys
+        if edit_action == "continue":
+            field_keys = []
+            workflow_data["profile_field_keys"] = []
 
         # Follow-up answers are stored by canonical slot name. Merge every field
         # emitted by this bounded resource, not only the initially resolved keys.
@@ -438,6 +468,7 @@ async def resolve_profile_write_node(
                             and dependent.clear_when_dependency_changes
                         ):
                             changes.pop(dependent.key, None)
+                            change_labels.pop(dependent.key, None)
 
         selected_fields = [
             field for field in resource.fields if field.key in field_keys
@@ -547,21 +578,27 @@ async def resolve_profile_write_node(
                 ):
                     changes[definition.key] = definition.default_value
             required = [item for item in operation_fields if item.required_on_create]
-            missing = [item for item in required if item.key not in changes]
+            missing = [
+                item for item in required
+                if item.key not in changes
+                or changes[item.key] in {None, ""}
+            ]
+            if edit_action != "finish":
+                return await _profile_draft_form(
+                    state, runtime, started, classification, operation,
+                    workflow_data, resource, list(operation_fields),
+                    record_reference, changes, {}, None,
+                )
             if missing:
-                return await _clarify_value(
-                    state,
-                    runtime,
-                    started,
-                    classification,
-                    operation,
-                    workflow_data,
-                    resource,
-                    missing[0],
-                    field_keys,
-                    record_reference,
-                    changes,
-                    missing_profile_slots=[item.key for item in missing],
+                labels = "\n".join(f"- {item.label}" for item in missing)
+                return await _profile_draft_form(
+                    state, runtime, started, classification, operation,
+                    workflow_data, resource, list(operation_fields),
+                    record_reference, changes, {}, None,
+                    notice=(
+                        "Vui lòng hoàn thiện các trường bắt buộc:\n" + labels
+                    ),
+                    missing_required=[item.key for item in missing],
                 )
         elif operation is Operation.UPDATE:
             if not selected_fields and edit_action not in {
@@ -646,10 +683,8 @@ async def resolve_profile_write_node(
                     workflow_data, resource, list(operation_fields),
                     record_reference, {}, current_snapshot,
                     expected_version,
-                    notice=(
-                        "Giá trị bạn chọn không thay đổi; bản nháp chưa có "
-                        "cập nhật mới."
-                    ),
+                    notice="Không có thay đổi nào để hoàn tất.",
+                    allow_finish=False,
                 )
         elif operation is Operation.DELETE:
             current = await schema.get_record(
@@ -691,10 +726,8 @@ async def resolve_profile_write_node(
                 workflow_data, resource, list(operation_fields),
                 record_reference, changes, current_snapshot,
                 expected_version,
-                notice=(
-                    "Bạn chưa nhập thay đổi nào. Hãy chọn một trường để sửa "
-                    "trước khi hoàn tất."
-                ),
+                notice="Không có thay đổi nào để hoàn tất.",
+                allow_finish=False,
             )
         if edit_action == "finish":
             return await _profile_edit_summary(
@@ -897,23 +930,52 @@ async def _resolve_direct_field_update(
 def _draft_field_rows(
     fields: list[ProfileField], current_snapshot: dict[str, Any],
     changes: dict[str, Any],
+    operation: Operation = Operation.UPDATE,
+    missing_required: set[str] | None = None,
+    draft_labels: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     rows = []
+    draft_labels = draft_labels or {}
     for field in fields:
         current = current_snapshot.get(field.key)
+        draft_display = draft_labels.get(
+            field.key, _display_value(changes.get(field.key))
+        )
         changed = field.key in changes and not _same_value(
             current, changes[field.key]
         )
         rows.append({
+            "field_key": field.key,
             "label": field.label,
             "current_value": _display_value(current),
+            "current_raw_value": current,
             "draft_value": (
-                _display_value(changes[field.key]) if field.key in changes
+                draft_display if field.key in changes
                 else None
             ),
-            "status": "changed" if changed else "unchanged",
+            "draft_raw_value": changes.get(field.key),
+            "display_value": (
+                f"{_display_value(current) or '—'} → "
+                f"{draft_display or '—'}"
+                if changed else (_display_value(current) or "—")
+            ),
+            "status": (
+                "invalid" if field.key in (missing_required or set())
+                else "changed" if changed else "unchanged"
+            ),
             "input_type": input_type_for_field(field),
             "description": field.description,
+            "required": field.required_on_create and operation is Operation.CREATE,
+            "readonly": not field.allows(operation),
+            "options": _options(field.selection_values),
+            "depends_on": list(field.depends_on),
+            "options_context_keys": list(field.options_context_keys),
+            "range_group": field.range_group,
+            "clear_when_dependency_changes": field.clear_when_dependency_changes,
+            "validation_error": (
+                "Trường bắt buộc"
+                if field.key in (missing_required or set()) else None
+            ),
         })
     return rows
 
@@ -934,15 +996,15 @@ async def _profile_draft_form(
     *,
     notice: str | None = None,
     allow_finish: bool = True,
+    missing_required: list[str] | None = None,
 ) -> dict[str, object]:
     editable = [field for field in fields if field.allows(operation)]
-    options = [
-        {"value": f"edit:{field.key}", "label": f"Sửa {field.label}",
-         "description": field.description}
-        for field in editable
-    ]
+    options = []
     if allow_finish:
         options.append({"value": "finish", "label": "Hoàn tất",
+                        "description": None})
+    else:
+        options.append({"value": "continue", "label": "Tiếp tục chỉnh sửa",
                         "description": None})
     options.append({"value": "cancel", "label": "Hủy",
                     "description": None})
@@ -951,6 +1013,10 @@ async def _profile_draft_form(
         "profile_expected_version": expected_version,
         "profile_changes": changes,
         "profile_edit_status": "EDITING",
+        "profile_edit_session_id": workflow_data.get(
+            "profile_edit_session_id"
+        ) or f"profile-{uuid4()}",
+        "profile_form_field_keys": [field.key for field in editable],
     })
     return await _clarification(
         state, runtime, started, classification, operation, workflow_data,
@@ -964,9 +1030,23 @@ async def _profile_draft_form(
         extra_metadata={
             "title": resource.label,
             "fields": _draft_field_rows(
-                list(resource.fields), current_snapshot, changes
+                list(resource.fields), current_snapshot, changes, operation,
+                set(missing_required or []),
+                workflow_data.get("profile_change_labels"),
             ),
             "status": "EDITING",
+            "session_id": workflow_data["profile_edit_session_id"],
+            "mode": operation.value,
+            "section_key": resource.section_key,
+            "resource_key": resource.key,
+            "record_token": (
+                str(workflow_data.get("profile_record_id"))
+                if workflow_data.get("profile_record_id") is not None else None
+            ),
+            "draft_count": sum(
+                not _same_value(current_snapshot.get(key), value)
+                for key, value in changes.items()
+            ),
         },
     )
 
@@ -1012,7 +1092,10 @@ async def _direct_draft_form(
         options=options,
         extra_metadata={
             "title": fields[0].label,
-            "fields": _draft_field_rows(fields, current_snapshot, changes),
+            "fields": _draft_field_rows(
+                fields, current_snapshot, changes,
+                draft_labels=workflow_data.get("profile_change_labels"),
+            ),
             "status": "EDITING",
         },
     )
@@ -1042,6 +1125,9 @@ async def _profile_edit_summary(
         "profile_changes": changes,
         "profile_record_id": record_id,
         "profile_edit_status": "REVIEWING",
+        "profile_edit_session_id": workflow_data.get(
+            "profile_edit_session_id"
+        ) or f"profile-{uuid4()}",
     })
     return await _clarification(
         state, runtime, started, classification, operation, workflow_data,
@@ -1059,9 +1145,16 @@ async def _profile_edit_summary(
         ],
         extra_metadata={
             "title": resource.label if resource else section.label,
-            "fields": _draft_field_rows(fields, current_snapshot, changes),
+            "fields": _draft_field_rows(
+                fields, current_snapshot, changes, operation,
+                draft_labels=workflow_data.get("profile_change_labels"),
+            ),
             "status": "REVIEWING",
             "write_mode": write_mode.value,
+            "session_id": workflow_data["profile_edit_session_id"],
+            "mode": operation.value,
+            "section_key": section.key if section else resource.section_key,
+            "resource_key": resource.key if resource else None,
         },
     )
 
@@ -1162,6 +1255,92 @@ async def _save_profile_draft(
     return update
 
 
+async def _resume_deferred_profile_query(
+    state: ChatGraphState,
+    runtime: Runtime[GraphContext],
+    started: float,
+    workflow_data: dict[str, Any],
+    *,
+    save_draft: bool,
+) -> dict[str, object]:
+    deferred_query = str(workflow_data.get("profile_deferred_query") or "").strip()
+    if not deferred_query:
+        return _typed_error(
+            state,
+            started,
+            "PROFILE_DEFERRED_QUERY_MISSING",
+            "Không còn tìm thấy câu hỏi mới. Các thay đổi vẫn được giữ.",
+            CapabilityOutcome.INVALID,
+        )
+    if save_draft:
+        payload = {
+            "section_key": workflow_data.get("profile_section_key"),
+            "resource_key": workflow_data.get("profile_resource_key"),
+            "operation": workflow_data.get("operation") or "update",
+            "record_id": workflow_data.get("profile_record_id"),
+            "changes": dict(workflow_data.get("profile_changes") or {}),
+            "expected_version": workflow_data.get("profile_expected_version"),
+            "idempotency_key": (
+                f"draft-switch:{state['conversation_id']}:{state['request_id']}"
+            ),
+        }
+        payload = {key: value for key, value in payload.items() if value is not None}
+        try:
+            await runtime.context.profile_schema_client.save_draft(
+                payload,
+                odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
+                request_id=state["request_id"],
+            )
+        except ProfileSchemaError as error:
+            return _typed_error(
+                state,
+                started,
+                error.reason_code,
+                "Không thể lưu bản nháp; các thay đổi vẫn được giữ.",
+                CapabilityOutcome.INVALID,
+            )
+    await runtime.context.conversation_service.clear_active_workflow(
+        state["conversation_id"],
+        int(state["trusted_context"]["odoo_user_id"]),
+    )
+    notice = (
+        "Các thay đổi đã được lưu nháp và chưa gửi phê duyệt."
+        if save_draft
+        else "Các thay đổi nháp đã được bỏ."
+    )
+    update = stage_update(
+        state,
+        event="profile_deferred_query_resumed",
+        timing_name="profile_edit_ms",
+        started=started,
+        data={"draft_saved": save_draft},
+    )
+    update.update({
+        "user_message": deferred_query,
+        "resume_deferred_query": True,
+        "deferred_notice": notice,
+        "conversation_status": ConversationStatus.ACTIVE.value,
+        "pending_tool_name": None,
+        "collected_arguments": {},
+        "missing_arguments": [],
+        "ambiguous_arguments": [],
+        "workflow_data": {},
+        "profile_section_key": None,
+        "profile_resource_key": None,
+        "profile_field_keys": [],
+        "profile_record_reference": None,
+        "profile_record_id": None,
+        "profile_write_mode": None,
+        "profile_current_snapshot": {},
+        "profile_changes": {},
+        "missing_profile_slots": [],
+        "response_type": None,
+        "response_text": None,
+        "response_data": None,
+    })
+    return update
+
+
 async def _cancel_edit_session(
     state: ChatGraphState,
     runtime: Runtime[GraphContext],
@@ -1221,13 +1400,16 @@ async def _create_profile_confirmation(
         "write_mode": write_mode.value,
     }
     arguments = {key: value for key, value in arguments.items() if value is not None}
+    change_labels = workflow_data.get("profile_change_labels", {})
     summary = []
     for definition in selected_fields:
         if definition.key in changes:
             summary.append({
                 "label": definition.label,
                 "old_value": _display_value(current_snapshot.get(definition.key)),
-                "new_value": _display_value(changes[definition.key]),
+                "new_value": change_labels.get(
+                    definition.key, _display_value(changes[definition.key])
+                ),
             })
     if operation is Operation.CREATE:
         if resource is None:
@@ -1235,7 +1417,7 @@ async def _create_profile_confirmation(
         fields_by_key = {field.key: field for field in resource.fields}
         summary = [
             {"label": fields_by_key[key].label, "old_value": None,
-             "new_value": _display_value(value)}
+             "new_value": change_labels.get(key, _display_value(value))}
             for key, value in changes.items() if key in fields_by_key
         ]
     elif operation is Operation.DELETE:
@@ -1386,6 +1568,11 @@ def _display_value(value: Any) -> str:
         return str(value.get("label") or value.get("value") or "")
     if isinstance(value, list):
         return ", ".join(_display_value(item) for item in value)
+    if isinstance(value, str):
+        parts = value[:10].split("-")
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            year, month, day = parts
+            return f"{day}/{month}/{year}"
     return "" if value is None else str(value)
 
 

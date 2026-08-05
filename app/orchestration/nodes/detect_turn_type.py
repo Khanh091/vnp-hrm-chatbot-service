@@ -45,6 +45,80 @@ async def detect_turn_type_node(
         TurnType.NEW_QUERY,
         TurnType.NEW_QUERY_OVERRIDE,
     }
+    workflow_data = dict(state.get("workflow_data", {}))
+    profile_changes = dict(
+        workflow_data.get("profile_changes")
+        or state.get("profile_changes", {})
+    )
+    guards_profile_draft = (
+        starting_new_query
+        and awaiting_clarification
+        and state.get("pending_tool_name") == "profile_crud_workflow"
+        and bool(profile_changes)
+        and state.get("clarification") is None
+    )
+    if guards_profile_draft:
+        deferred_query = str(state.get("user_message") or "").strip()
+        previous_metadata = workflow_data.get("clarification_metadata", {})
+        session_id = workflow_data.get("profile_edit_session_id")
+        options = [
+            {"value": "continue", "label": "Tiếp tục chỉnh sửa"},
+            {"value": "switch_save_draft", "label": "Lưu nháp"},
+            {
+                "value": "switch_discard",
+                "label": "Bỏ thay đổi và chuyển câu hỏi mới",
+            },
+        ]
+        metadata = {
+            **(previous_metadata if isinstance(previous_metadata, dict) else {}),
+            "input_type": "edit_session_actions",
+            "slot_name": "profile_edit_action",
+            "session_id": session_id,
+            "status": "OVERRIDE_GUARD",
+            "options": options,
+        }
+        workflow_data.update({
+            "profile_changes": profile_changes,
+            "profile_deferred_query": deferred_query,
+            "profile_edit_status": "OVERRIDE_GUARD",
+            "current_field": "profile_edit_action",
+            "clarification_options": options,
+            "clarification_metadata": metadata,
+        })
+        conversation = await runtime.context.conversation_service.load_owned(
+            state["conversation_id"],
+            int(state["trusted_context"]["odoo_user_id"]),
+        )
+        await runtime.context.conversation_service.update(
+            conversation,
+            status=ConversationStatus.AWAITING_CLARIFICATION,
+            pending_tool_name="profile_crud_workflow",
+            workflow_data=workflow_data,
+        )
+        text = (
+            "Bạn đang có thay đổi chưa lưu. Hãy chọn cách xử lý trước khi "
+            "chuyển sang câu hỏi mới."
+        )
+        update = stage_update(
+            state,
+            event="profile_new_query_guarded",
+            timing_name="turn_detection_ms",
+            started=started,
+            data={"deferred_query": True},
+        )
+        update.update({
+            "turn_type": TurnType.PROFILE_OVERRIDE_GUARD,
+            "conversation_status": ConversationStatus.AWAITING_CLARIFICATION.value,
+            "workflow_data": workflow_data,
+            "response_type": ChatResponseType.CLARIFICATION_REQUIRED,
+            "response_text": text,
+            "response_data": {
+                "message_type": "clarification",
+                "text": text,
+                "clarification": metadata,
+            },
+        })
+        return update
     if starting_new_query and awaiting_confirmation:
         pending_action_id = state.get("workflow_data", {}).get(
             "pending_action_id"

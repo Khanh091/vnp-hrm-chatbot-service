@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from time import perf_counter
 from typing import Any
 
@@ -130,6 +131,80 @@ async def merge_clarification_node(
         metadata = state.get("workflow_data", {}).get(
             "clarification_metadata", {}
         )
+        answer_type = structured.get("answer_type")
+        if (
+            is_profile_workflow
+            and answer_type in {"profile_field_edit", "profile_edit_action"}
+        ):
+            expected_session = state.get("workflow_data", {}).get(
+                "profile_edit_session_id"
+            )
+            if (
+                not expected_session
+                or structured.get("session_id") != expected_session
+                or not isinstance(metadata, dict)
+            ):
+                return _invalid_structured_selection(state, started, field)
+            if answer_type == "profile_edit_action":
+                allowed_actions = {
+                    str(item.get("value"))
+                    for item in allowed_options
+                    if isinstance(item, dict)
+                }
+                action = str(structured.get("value") or "")
+                if action not in allowed_actions:
+                    return _invalid_structured_selection(state, started, field)
+                arguments["profile_edit_action"] = action
+                validated_user_message = str(structured.get("label") or action)
+                validated_structured = dict(structured)
+                resolved = True
+            else:
+                field_key = str(structured.get("field") or "")
+                form_fields = {
+                    str(item.get("field_key")): item
+                    for item in metadata.get("fields", [])
+                    if isinstance(item, dict) and item.get("field_key")
+                }
+                field_metadata = form_fields.get(field_key)
+                if (
+                    field_metadata is None
+                    or field_metadata.get("readonly") is True
+                    or field_key not in state.get("workflow_data", {}).get(
+                        "profile_form_field_keys", []
+                    )
+                ):
+                    return _invalid_structured_selection(state, started, field)
+                value = structured.get("value")
+                input_type = field_metadata.get("input_type")
+                if input_type in {"single_select", "boolean"}:
+                    allowed = {
+                        str(item.get("value"))
+                        for item in field_metadata.get("options", [])
+                        if isinstance(item, dict)
+                    }
+                    if input_type == "boolean":
+                        allowed.update({"true", "false"})
+                    if str(value).lower() not in allowed:
+                        return _invalid_structured_selection(state, started, field)
+                elif input_type == "date":
+                    try:
+                        date.fromisoformat(str(value))
+                    except ValueError:
+                        return _invalid_structured_selection(state, started, field)
+                elif input_type == "number":
+                    try:
+                        float(str(value))
+                    except (TypeError, ValueError):
+                        return _invalid_structured_selection(state, started, field)
+                elif input_type == "attachment":
+                    return _invalid_structured_selection(state, started, field)
+                arguments[field_key] = value
+                validated_user_message = str(
+                    structured.get("label") or value or ""
+                )
+                validated_structured = dict(structured)
+                resolved = True
+            structured = None
         try:
             trusted_selection = validate_structured_selection(
                 structured,
@@ -137,19 +212,21 @@ async def merge_clarification_node(
                 allowed_options=allowed_options,
                 metadata=metadata if isinstance(metadata, dict) else {},
             )
-        except InvalidStructuredSelection:
-            return _invalid_structured_selection(state, started, field)
-        structured_value = trusted_selection.value
-        validated_user_message = trusted_selection.display_label
-        validated_structured = {
-            "field": field,
-            "value": trusted_selection.value,
-            "label": validated_user_message,
-            "answer_type": trusted_selection.answer_type,
-            "slot_name": structured.get("slot_name") or field,
-        }
-        message = validated_user_message
-        structured = validated_structured
+        except (AttributeError, InvalidStructuredSelection, TypeError):
+            if structured is not None:
+                return _invalid_structured_selection(state, started, field)
+        else:
+            structured_value = trusted_selection.value
+            validated_user_message = trusted_selection.display_label
+            validated_structured = {
+                "field": field,
+                "value": trusted_selection.value,
+                "label": validated_user_message,
+                "answer_type": trusted_selection.answer_type,
+                "slot_name": structured.get("slot_name") or field,
+            }
+            message = validated_user_message
+            structured = validated_structured
     if (
         field
         and isinstance(structured, dict)

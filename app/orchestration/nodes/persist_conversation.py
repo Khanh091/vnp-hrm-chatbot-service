@@ -14,8 +14,14 @@ async def persist_conversation_node(
 ) -> dict[str, object]:
     started = perf_counter()
     message = state.get("user_message")
-    if message:
-        clarification = state.get("clarification")
+    clarification = state.get("clarification")
+    inline_profile_answer = (
+        isinstance(clarification, dict)
+        and clarification.get("answer_type") in {
+            "profile_field_edit", "profile_edit_action"
+        }
+    )
+    if message and not inline_profile_answer:
         structured_data = (
             {
                 "answer_type": clarification.get("answer_type"),

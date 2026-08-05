@@ -20,6 +20,21 @@ from app.routing.taxonomy import Intent, Operation
 logger = logging.getLogger(__name__)
 
 
+_GENERIC_PROFILE_TARGET_WORDS = {
+    "ca",
+    "cua",
+    "ho",
+    "khai",
+    "minh",
+    "nhan",
+    "so",
+    "thong",
+    "tin",
+    "toi",
+    "tu",
+}
+
+
 class ProfileTargetResolution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -172,6 +187,21 @@ class ProfileTargetResolver:
         target = cls._target_text(original_query)
         if not target:
             return None
+        target_words = set(target.split())
+        is_profile_umbrella = (
+            {"ho", "so"}.issubset(target_words)
+            or {"thong", "tin"}.issubset(target_words)
+            or {"ca", "nhan"}.issubset(target_words)
+        )
+        if (
+            is_profile_umbrella
+            and target_words.issubset(_GENERIC_PROFILE_TARGET_WORDS)
+        ):
+            return ProfileTargetResolution(
+                confidence=0.3,
+                needs_clarification=True,
+                reason_code="GENERIC_PROFILE_TARGET",
+            )
 
         intent_tokens = set(
             cls._normalized(intent.value.split(".", 1)[-1]).split()
@@ -279,6 +309,29 @@ class ProfileTargetResolver:
                 for score_value, item in resource_matches
                 if score_value >= 80
             }
+            intent_owned = [
+                item for item in tied_fields
+                if item[2] is not None
+                and intent_tokens.intersection(
+                    cls._normalized(
+                        " ".join((
+                            item[2].key,
+                            item[2].label,
+                            *item[2].aliases,
+                        ))
+                    ).split()
+                )
+            ]
+            if len(intent_owned) == 1:
+                _, _, matched_resource, matched_field = intent_owned[0]
+                return ProfileTargetResolution(
+                    section_key=matched_resource.section_key,
+                    resource_key=matched_resource.key,
+                    field_keys=[matched_field.key],
+                    confidence=1,
+                    needs_clarification=False,
+                    reason_code="INTENT_OWNED_FIELD_MATCH",
+                )
             contextual = [
                 item for item in tied_fields
                 if item[2] is not None and item[2].key in contextual_resources

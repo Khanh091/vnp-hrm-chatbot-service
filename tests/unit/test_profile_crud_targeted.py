@@ -211,6 +211,7 @@ async def run_target(*, section: str, resource: str | None,
                      previous_workflow: dict[str, Any] | None = None,
                      answer_field: str | None = None,
                      answer_type: str = "option_select",
+                     answer_label: str | None = None,
                      schema_error: ProfileSchemaError | None = None):
     schema = FakeSchema(schema_error)
     pending = FakePending()
@@ -243,6 +244,8 @@ async def run_target(*, section: str, resource: str | None,
             "answer_type": answer_type,
             "field": answer_field,
         }
+        if answer_label is not None:
+            state["clarification"]["label"] = answer_label
     result = await resolve_profile_write_node(
         state, SimpleNamespace(context=context)
     )
@@ -280,9 +283,12 @@ async def test_3_contact_resource_lists_only_contact_fields():
     result, _, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
     assert result["response_data"]["clarification"]["input_type"] == "resource_form"
     options = result["response_data"]["clarification"]["options"]
-    assert {item["value"] for item in options} == {
-        "edit:mobile_phone", "edit:work_email", "finish", "cancel"
+    assert {item["value"] for item in options} == {"finish", "cancel"}
+    form = result["response_data"]["clarification"]
+    assert {item["field_key"] for item in form["fields"]} == {
+        "mobile_phone", "work_email"
     }
+    assert form["session_id"].startswith("profile-")
 
 
 @pytest.mark.asyncio
@@ -302,9 +308,10 @@ async def test_5_employment_exposes_all_edition_writable_fields():
         item["value"]
         for item in result["response_data"]["clarification"]["options"]
     }
-    assert values == {
-        "edit:employee_type", "edit:manager", "edit:main_job", "finish",
-        "cancel",
+    assert values == {"finish", "cancel"}
+    rows = result["response_data"]["clarification"]["fields"]
+    assert {item["field_key"] for item in rows if not item["readonly"]} == {
+        "employee_type", "manager", "main_job"
     }
     assert "department" not in values
 
@@ -330,13 +337,20 @@ async def test_7_certificate_text_answer_advances_to_next_required_slot():
         section=EDUCATION.key, resource=CERTIFICATES.key,
         operation=Operation.CREATE,
     )
-    assert first["response_data"]["clarification"]["slot_name"] == "certificate_name"
+    form = first["response_data"]["clarification"]
+    assert form["slot_name"] == "profile_edit_action"
+    assert form["input_type"] == "record_form"
+    assert {
+        item["field_key"] for item in form["fields"] if item["required"]
+    } == {"certificate_name", "certificate_type"}
     second, _, _ = await run_target(
         section=EDUCATION.key, resource=CERTIFICATES.key,
         operation=Operation.CREATE, collected={"certificate_name": "IELTS"},
         previous_workflow=first["workflow_data"],
     )
-    assert second["response_data"]["clarification"]["slot_name"] == "certificate_type"
+    assert second["response_data"]["clarification"]["slot_name"] == (
+        "profile_edit_action"
+    )
     assert second["workflow_data"]["profile_changes"]["certificate_name"] == "IELTS"
 
 
@@ -651,6 +665,53 @@ def test_19_unqualified_duplicate_label_prefers_direct_section_field(
     assert resolution.reason_code == "DIRECT_FIELD_TIE_BREAK"
 
 
+def test_19b_duplicate_resource_field_uses_classifier_intent_owner():
+    address_hometown = field("hometown", "Quê quán")
+    relative_hometown = field("hometown", "Quê quán")
+    address = ProfileResource(
+        key="address_information", label="Thông tin địa chỉ",
+        section_key=BASIC.key, resource_type="singleton", readable=True,
+        creatable=False, updatable=True, deletable=False,
+        fields=(address_hometown,),
+    )
+    family = ProfileResource(
+        key="family_relations", label="Quan hệ gia đình",
+        section_key="family", resource_type="collection", readable=True,
+        creatable=True, updatable=True, deletable=True,
+        fields=(relative_hometown,),
+    )
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "sửa quê quán", Intent.PROFILE_ADDRESS, Operation.UPDATE,
+        (BASIC, ProfileSection(key="family", label="Gia đình")),
+        (address, family),
+    )
+    assert resolution is not None
+    assert resolution.resource_key == address.key
+    assert resolution.field_keys == ["hometown"]
+    assert resolution.reason_code == "INTENT_OWNED_FIELD_MATCH"
+
+
+@pytest.mark.parametrize(
+    "query",
+    (
+        "sửa hồ sơ",
+        "cập nhật thông tin của tôi",
+        "sửa hồ sơ tự khai cá nhân",
+    ),
+)
+def test_19c_generic_profile_target_does_not_select_a_field(query: str):
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        query, Intent.PROFILE_SUMMARY, Operation.UPDATE,
+        SECTIONS, RESOURCES,
+    )
+    assert resolution is not None
+    assert resolution.section_key is None
+    assert resolution.resource_key is None
+    assert resolution.field_keys == []
+    assert resolution.needs_clarification is True
+    assert resolution.reason_code == "GENERIC_PROFILE_TARGET"
+
+
 @pytest.mark.asyncio
 async def test_20_invalid_draft_save_keeps_review_controls_and_changes():
     reviewed, _, _ = await run_target(
@@ -672,7 +733,7 @@ async def test_20_invalid_draft_save_keeps_review_controls_and_changes():
     clarification = failed["response_data"]["clarification"]
     assert clarification["input_type"] == "resource_form"
     assert {item["value"] for item in clarification["options"]} == {
-        "edit:mobile_phone", "edit:work_email", "cancel",
+        "continue", "cancel",
     }
     assert "Ngày vào đơn vị" in failed["response_text"]
     assert failed["workflow_data"]["profile_changes"] == {
@@ -680,3 +741,93 @@ async def test_20_invalid_draft_save_keeps_review_controls_and_changes():
     }
     assert pending.created == []
     assert len(schema.saved_drafts) == 1
+
+
+@pytest.mark.asyncio
+async def test_21_inline_edits_accumulate_and_continue_keeps_session():
+    form, _, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
+    session_id = form["response_data"]["clarification"]["session_id"]
+    first, _, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={MOBILE.key: "0987654321"},
+        previous_workflow=form["workflow_data"],
+        answer_field=MOBILE.key, answer_type="profile_field_edit",
+    )
+    second, _, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={EMAIL.key: "dev@vnpt.vn"},
+        previous_workflow=first["workflow_data"],
+        answer_field=EMAIL.key, answer_type="profile_field_edit",
+    )
+    assert second["workflow_data"]["profile_changes"] == {
+        MOBILE.key: "0987654321", EMAIL.key: "dev@vnpt.vn",
+    }
+    reviewed, pending, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=second["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    assert pending.created == []
+    resumed, pending, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={"profile_edit_action": "continue"},
+        previous_workflow=reviewed["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    clarification = resumed["response_data"]["clarification"]
+    assert clarification["input_type"] == "resource_form"
+    assert clarification["session_id"] == session_id
+    assert resumed["workflow_data"]["profile_changes"] == {
+        MOBILE.key: "0987654321", EMAIL.key: "dev@vnpt.vn",
+    }
+    assert pending.created == []
+
+
+@pytest.mark.asyncio
+async def test_22_create_finish_requires_all_registry_required_fields():
+    form, _, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+    )
+    result, pending, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=form["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    clarification = result["response_data"]["clarification"]
+    assert result["response_text"].startswith(
+        "Vui lòng hoàn thiện các trường bắt buộc"
+    )
+    assert {
+        item["field_key"] for item in clarification["fields"]
+        if item["status"] == "invalid"
+    } == {CERTIFICATE_NAME.key, CERTIFICATE_TYPE.key}
+    assert pending.created == []
+
+
+@pytest.mark.asyncio
+async def test_23_many2one_draft_uses_selected_label_not_opaque_id():
+    form, _, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+    )
+    edited, _, _ = await run_target(
+        section=EDUCATION.key, resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={CERTIFICATE_TYPE.key: "2"},
+        previous_workflow=form["workflow_data"],
+        answer_field=CERTIFICATE_TYPE.key,
+        answer_type="profile_field_edit",
+        answer_label="Chứng chỉ ngoại ngữ",
+    )
+    clarification = edited["response_data"]["clarification"]
+    row = next(
+        item for item in clarification["fields"]
+        if item["field_key"] == CERTIFICATE_TYPE.key
+    )
+    assert row["draft_raw_value"] == "2"
+    assert row["draft_value"] == "Chứng chỉ ngoại ngữ"
+    assert row["display_value"] == "— → Chứng chỉ ngoại ngữ"

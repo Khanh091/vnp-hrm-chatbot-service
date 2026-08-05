@@ -32,12 +32,19 @@ async def format_response_node(
 ) -> dict[str, object]:
     started = perf_counter()
     if state.get("response_type") is not None:
-        return stage_update(
+        update = stage_update(
             state,
             event="response_ready",
             timing_name="response_formatting_ms",
             started=started,
         )
+        notice = state.get("deferred_notice")
+        if notice:
+            text = f"{notice}\n\n{state.get('response_text') or ''}".strip()
+            data = dict(state.get("response_data") or {})
+            data["text"] = text
+            update.update({"response_text": text, "response_data": data})
+        return update
     result_data = state.get("tool_result")
     if not result_data:
         outcome = CapabilityOutcome.INVALID

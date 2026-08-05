@@ -98,6 +98,32 @@ async def _run_pipeline(
             ),
             action_id=answer.selected_value,
         )
+    if answer is not None and answer.type is StructuredAnswerType.PROFILE_FIELD_EDIT:
+        return await pipeline.process(
+            answer.display_label or str(answer.value or ""),
+            trusted_context,
+            clarification={
+                "field": answer.field_key,
+                "value": answer.value,
+                "label": answer.display_label or str(answer.value or ""),
+                "answer_type": answer.type.value,
+                "slot_name": answer.field_key,
+                "session_id": answer.session_id,
+            },
+        )
+    if answer is not None and answer.type is StructuredAnswerType.PROFILE_EDIT_ACTION:
+        return await pipeline.process(
+            answer.action,
+            trusted_context,
+            clarification={
+                "field": "profile_edit_action",
+                "value": answer.action,
+                "label": answer.action,
+                "answer_type": answer.type.value,
+                "slot_name": "profile_edit_action",
+                "session_id": answer.session_id,
+            },
+        )
     if answer is not None:
         slot_name = answer.slot_name or ""
         internal_field = (

@@ -24,6 +24,7 @@ def route_after_turn_detection(
         TurnType.WORKFLOW_CANCEL: "format_response",
         TurnType.CONFIRMATION_ACCEPT: "load_pending_action_confirm",
         TurnType.CONFIRMATION_CANCEL: "load_pending_action_cancel",
+        TurnType.PROFILE_OVERRIDE_GUARD: "format_response",
     }
     return routes[state["turn_type"]]  # type: ignore[return-value]
 
@@ -50,6 +51,16 @@ def route_after_classification(
     ):
         return "resolve_profile_write"
     return "retrieve_candidates"
+
+
+def route_after_profile_write(
+    state: ChatGraphState,
+) -> Literal["normalize_query", "format_response"]:
+    return (
+        "normalize_query"
+        if state.get("resume_deferred_query")
+        else "format_response"
+    )
 
 
 def route_after_retrieval(
