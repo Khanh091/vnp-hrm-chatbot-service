@@ -738,7 +738,7 @@ async def test_20_invalid_draft_save_keeps_review_controls_and_changes():
     clarification = failed["response_data"]["clarification"]
     assert clarification["input_type"] == "resource_form"
     assert {item["value"] for item in clarification["options"]} == {
-        "continue", "cancel",
+        "finish", "cancel",
     }
     assert "Ngày vào đơn vị" in failed["response_text"]
     assert failed["workflow_data"]["profile_changes"] == {

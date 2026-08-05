@@ -45,6 +45,15 @@ profile.address; chứng chỉ => profile.certificates; người thân =>
 profile.family_relations; sức khỏe/tiêm chủng => profile.health. Với các nhóm
 khác, chọn enum profile.* gần nhất theo toàn bộ câu.
 
+Phân biệt rõ các intent dễ nhầm:
+- profile.summary/profile.basic là thông tin hồ sơ cơ bản và tổng quan như họ tên,
+  tên gọi khác, mã nhân viên, chức danh và đơn vị.
+- profile.identity là giấy tờ và thuộc tính định danh như CCCD/CMND/hộ chiếu,
+  ngày-nơi cấp, quốc tịch, dân tộc, tôn giáo và tình trạng hôn nhân. Từ "identity"
+  ở đây không có nghĩa là họ tên của nhân viên.
+- Câu hỏi chỉ hỏi tên hoặc họ tên của chính người dùng phải thuộc nhóm thông tin
+  cơ bản/tổng quan, không thuộc profile.identity.
+
 Dữ liệu hiện tại là data_query/read; chính sách là knowledge/read; chào hỏi là
 general/none; ngoài HRM là unsupported. Không suy đoán quyền từ scope.
 """.strip()

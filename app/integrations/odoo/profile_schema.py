@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
 from time import monotonic

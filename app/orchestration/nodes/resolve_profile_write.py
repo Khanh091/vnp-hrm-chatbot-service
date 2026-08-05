@@ -728,9 +728,13 @@ async def resolve_profile_write_node(
                 expected_version, changes, write_mode, workflow_data,
             )
         draft_fields = selected_fields or list(operation_fields)
+        option_errors = await _validate_current_option_sets(
+            state, runtime, resource, draft_fields, changes, workflow_data
+        ) if edit_action in {"finish", "save_draft", "submit"} else {}
         field_errors = _validate_profile_fields(
             draft_fields, changes, operation=operation
         )
+        field_errors = {**option_errors, **field_errors}
         if field_errors and edit_action in {"finish", "save_draft", "submit"}:
             return await _profile_draft_form(
                 state, runtime, started, classification, operation,
@@ -856,7 +860,8 @@ async def _resolve_direct_field_update(
         if isinstance(structured_answer, dict) else None
     )
     applied_key = (
-        str(answer_field) if answer_field in {item.key for item in section.direct_fields}
+        str(answer_field)
+        if answer_field in {item.key for item in section.direct_fields}
         else str(workflow_data.get("current_field") or "")
     )
     if applied_key in collected:
@@ -1260,6 +1265,10 @@ async def _save_profile_draft(
     *,
     section: ProfileSection | None = None,
 ) -> dict[str, object]:
+    action_key = (
+        workflow_data.get("profile_last_client_action_id")
+        or state["request_id"]
+    )
     payload = {
         "section_key": section.key if section else None,
         "resource_key": resource.key if resource else None,
@@ -1267,7 +1276,11 @@ async def _save_profile_draft(
         "record_id": record_id,
         "changes": changes,
         "expected_version": expected_version,
-        "idempotency_key": f"draft:{state['conversation_id']}:{state['request_id']}",
+        "idempotency_key": (
+            f"draft:{state['conversation_id']}:"
+            f"{workflow_data.get('profile_edit_session_id')}:"
+            f"{action_key}"
+        ),
     }
     payload = {key: value for key, value in payload.items()
                if value is not None}
@@ -1296,7 +1309,8 @@ async def _save_profile_draft(
         detail = str(error).strip().rstrip(".")
         notice = (
             f"Không thể lưu bản nháp: {detail}. "
-            "Các thay đổi vẫn được giữ; bạn có thể tiếp tục chỉnh sửa hoặc hủy."
+            "Các thay đổi vẫn được giữ; hãy sửa thông tin chưa hợp lệ rồi "
+            "bấm Hoàn tất, hoặc hủy thay đổi."
         )
         workflow_data["profile_save_error"] = {
             "code": error.reason_code,
@@ -1306,13 +1320,12 @@ async def _save_profile_draft(
             return await _direct_draft_form(
                 state, runtime, started, classification, workflow_data,
                 section, draft_fields, None, changes, current_snapshot,
-                expected_version, notice=notice, allow_finish=False,
+                expected_version, notice=notice,
             )
         return await _profile_draft_form(
             state, runtime, started, classification, operation,
             workflow_data, resource, list(resource.fields), None, changes,
             current_snapshot, expected_version, notice=notice,
-            allow_finish=False,
         )
     if result.draft_saved is not True:
         raise ProfileSchemaError(
@@ -1534,6 +1547,10 @@ async def _create_profile_confirmation(
     section: ProfileSection | None = None,
 ) -> dict[str, object]:
     trusted = state["trusted_context"]
+    action_key = (
+        workflow_data.get("profile_last_client_action_id")
+        or state["request_id"]
+    )
     arguments = {
         "intent": classification.intent.value,
         "operation": operation.value,
@@ -1544,6 +1561,11 @@ async def _create_profile_confirmation(
         "expected_version": expected_version,
         "changes": changes,
         "write_mode": write_mode.value,
+        "idempotency_key": (
+            f"submit:{state['conversation_id']}:"
+            f"{workflow_data.get('profile_edit_session_id')}:"
+            f"{action_key}"
+        ),
     }
     arguments = {key: value for key, value in arguments.items() if value is not None}
     change_labels = workflow_data.get("profile_change_labels", {})
@@ -1753,7 +1775,10 @@ def _canonical_profile_value(field: ProfileField, value: Any) -> Any:
     if isinstance(value, dict):
         value = value.get("value")
     if field.field_type == "many2many":
-        values = value if isinstance(value, list) else ([] if value is None else [value])
+        values = (
+            value if isinstance(value, list)
+            else ([] if value is None else [value])
+        )
         normalized = []
         for item in values:
             if isinstance(item, dict):
@@ -1827,6 +1852,43 @@ def _validate_profile_fields(fields, changes, *, operation):
             errors[field.key] = (
                 f"{field.label} phải bằng hoặc sau trường bắt đầu."
             )
+    return errors
+
+
+async def _validate_current_option_sets(
+    state, runtime, resource, fields, changes, workflow_data
+):
+    stored = workflow_data.get("profile_option_sets", {})
+    definitions = {item.key: item for item in fields}
+    errors = {}
+    for key, issued in stored.items():
+        field = definitions.get(key)
+        if field is None or key not in changes or not field.option_provider:
+            continue
+        context = {}
+        for dependency in field.options_context_keys:
+            value = changes.get(
+                dependency,
+                workflow_data.get("profile_current_snapshot", {}).get(dependency),
+            )
+            if isinstance(value, dict):
+                value = value.get("value")
+            if value not in (None, ""):
+                context[dependency] = value
+        if issued.get("depends_on", {}) != context:
+            errors[key] = "Trường phụ thuộc đã thay đổi. Vui lòng chọn lại."
+            continue
+        try:
+            current = await runtime.context.profile_schema_client.get_field_option_set(
+                resource.key, key, None, context,
+                odoo_user_id=int(state["trusted_context"]["odoo_user_id"]),
+                request_id=state["request_id"],
+            )
+        except ProfileSchemaError:
+            errors[key] = "Không thể kiểm tra danh sách hiện tại. Vui lòng chọn lại."
+            continue
+        if current.option_set_id != issued.get("option_set_id"):
+            errors[key] = "Danh sách lựa chọn đã thay đổi. Vui lòng chọn lại."
     return errors
 
 

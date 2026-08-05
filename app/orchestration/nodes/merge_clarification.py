@@ -1,6 +1,6 @@
+import logging
 import re
 from datetime import date
-import logging
 from time import perf_counter
 from typing import Any
 
@@ -286,9 +286,25 @@ async def merge_clarification_node(
                 )
                 validated_structured = dict(structured)
                 resolved = True
+                option_sets = dict(
+                    state.get("workflow_data", {}).get(
+                        "profile_option_sets", {}
+                    )
+                )
+                if input_type in {"single_select", "searchable_select"}:
+                    option_sets[field_key] = {
+                        "option_set_id": structured.get("option_set_id")
+                        or field_metadata.get("option_set_id"),
+                        "depends_on": structured.get("option_context") or {},
+                        "value": value,
+                    }
+                else:
+                    option_sets.pop(field_key, None)
+                workflow_overrides["profile_option_sets"] = option_sets
             workflow_overrides["profile_applied_action_ids"] = (
                 applied_action_ids + [client_action_id]
             )[-100:]
+            workflow_overrides["profile_last_client_action_id"] = client_action_id
             structured = None
         try:
             trusted_selection = validate_structured_selection(
@@ -847,6 +863,42 @@ def _invalid_profile_action(state, started, code, text, field_key):
         state.get("workflow_data", {}).get("profile_edit_session_id"),
         field_key, code,
     )
+    workflow_data = state.get("workflow_data", {})
+    metadata = workflow_data.get("clarification_metadata")
+    if (
+        code == "PROFILE_EDIT_SESSION_INVALID_STATE"
+        and isinstance(metadata, dict)
+        and metadata.get("session_id")
+        and metadata.get("form_revision")
+    ):
+        # A delayed click or an out-of-date OWL asset can submit the previous
+        # form revision. Return the authoritative form in the same response so
+        # the browser can replace its stale card instead of entering an error
+        # loop with no usable actions.
+        refresh_text = (
+            "Biểu mẫu đã thay đổi. Hệ thống đã tải lại biểu mẫu hiện tại; "
+            "vui lòng thao tác trên biểu mẫu này."
+        )
+        return {
+            **stage_update(
+                state, event="profile_edit_form_refreshed",
+                timing_name="argument_merge_ms", started=started,
+                data={"field_key": field_key, "reason_code": code},
+            ),
+            "response_type": ChatResponseType.CLARIFICATION_REQUIRED,
+            "response_text": refresh_text,
+            "response_data": {
+                "message_type": "clarification",
+                "text": refresh_text,
+                "error_code": code,
+                "clarification": metadata,
+            },
+            "pending_tool_name": state.get("pending_tool_name"),
+            "missing_arguments": state.get("missing_arguments", []),
+            "workflow_data": workflow_data,
+            "user_message": None,
+            "clarification": None,
+        }
     return {
         **stage_update(
             state, event="profile_edit_action_rejected",
