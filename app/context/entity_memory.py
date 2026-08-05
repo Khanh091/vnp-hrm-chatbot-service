@@ -26,6 +26,7 @@ class ConversationEntityMemory(BaseModel):
     last_departments: list[ReferencedEntity] = Field(default_factory=list)
     last_leave_requests: list[ReferencedEntity] = Field(default_factory=list)
     last_contracts: list[ReferencedEntity] = Field(default_factory=list)
+    last_profile_targets: list[ReferencedEntity] = Field(default_factory=list)
 
 
 class EntityMemoryService:
@@ -36,6 +37,27 @@ class EntityMemoryService:
         data: object,
         memory: ConversationEntityMemory,
     ) -> ConversationEntityMemory:
+        if tool_name == "profile_target" and isinstance(data, dict):
+            key = data.get("field_key") or data.get("resource_key") or data.get("section_key")
+            label = data.get("label")
+            if isinstance(key, str) and isinstance(label, str):
+                reference = ReferencedEntity(
+                    entity_type="profile_target", entity_id=key,
+                    label=label, created_at=datetime.now(timezone.utc),
+                    attributes={
+                        item: data[item] for item in (
+                            "section_key", "resource_key", "field_key"
+                        ) if data.get(item) is not None
+                    },
+                )
+                existing = [
+                    item for item in memory.last_profile_targets
+                    if item.attributes != reference.attributes
+                ]
+                return memory.model_copy(update={
+                    "last_profile_targets": [reference, *existing][:5]
+                })
+            return memory
         if tool_name not in {
             "leave_get_history",
             "leave_get_request_status",

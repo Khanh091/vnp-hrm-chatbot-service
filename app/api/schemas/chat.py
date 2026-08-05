@@ -83,6 +83,12 @@ class ClarificationInputType(str, Enum):
     BOOLEAN = "boolean"
     TEXT = "text"
     NUMBER = "number"
+    DATE_RANGE = "date_range"
+    ATTACHMENT = "attachment"
+    RESOURCE_FORM = "resource_form"
+    RECORD_FORM = "record_form"
+    EDIT_SUMMARY = "edit_summary"
+    EDIT_SESSION_ACTIONS = "edit_session_actions"
 
 
 class ClarificationOption(BaseModel):

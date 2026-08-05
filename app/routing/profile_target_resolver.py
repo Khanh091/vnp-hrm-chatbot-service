@@ -60,6 +60,8 @@ _SYSTEM_PROMPT = """
 Fields may belong directly to a section. For a direct field, return its
 section_key and field_keys while leaving resource_key null. For a field inside
 a singleton or collection, return its resource_key and owning section_key.
+Recent profile targets are canonical short-term memory. Resolve a pronoun only
+when exactly one recent target is compatible; otherwise request clarification.
 Bạn resolve mục tiêu hồ sơ tự khai từ câu tiếng Việt sang các key registry.
 Chỉ chọn section_key, resource_key và field_keys có trong candidate allowlist.
 Không được tạo model_name, ORM field, record_id, domain, capability hay endpoint.
@@ -83,6 +85,7 @@ class ProfileTargetResolver:
         operation: Operation,
         sections: tuple[ProfileSection, ...],
         resources: tuple[ProfileResource, ...],
+        recent_profile_targets: list[dict[str, object]] | None = None,
         request_id: str | None = None,
     ) -> ProfileTargetResolution:
         exact = self._resolve_exact_match(
@@ -122,6 +125,7 @@ class ProfileTargetResolver:
             "intent": intent.value,
             "operation": operation.value,
             "candidate_sections": candidate_sections,
+            "recent_profile_targets": (recent_profile_targets or [])[:5],
         }
         try:
             result = await self._llm.complete_structured(

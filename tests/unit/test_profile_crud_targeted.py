@@ -107,6 +107,9 @@ RESOURCES = (
 
 
 class FakeSchema:
+    def __init__(self) -> None:
+        self.saved_drafts: list[dict[str, Any]] = []
+
     async def get_sections(self, operation, **kwargs):
         return SECTIONS
 
@@ -116,6 +119,17 @@ class FakeSchema:
         if operation is None:
             return resources
         return tuple(item for item in resources if item.allows(operation))
+
+    async def get_section(self, key, operation=None, **kwargs):
+        section = next(item for item in SECTIONS if item.key == key)
+        if operation is None:
+            return section
+        return section.model_copy(update={
+            "direct_fields": tuple(
+                item for item in section.direct_fields
+                if item.allows(operation)
+            )
+        })
 
     async def get_resource(self, key, **kwargs):
         return next(item for item in RESOURCES if item.key == key)
@@ -146,6 +160,13 @@ class FakeSchema:
     async def list_records(self, *args, **kwargs):
         return ()
 
+    async def save_draft(self, payload, **kwargs):
+        self.saved_drafts.append(payload)
+        return SimpleNamespace(
+            message=("Các thay đổi đã được lưu vào hồ sơ tự khai nhưng "
+                     "chưa gửi phê duyệt."),
+        )
+
 
 class FakePending:
     def __init__(self) -> None:
@@ -166,6 +187,11 @@ class FakeConversations:
         return None
 
 
+class FakeEntityMemory:
+    def capture(self, *, memory, **kwargs):
+        return memory
+
+
 def classification(operation: Operation) -> QueryClassification:
     return QueryClassification(
         route=QueryRoute.TASK, domain=Domain.PROFILE,
@@ -178,12 +204,15 @@ async def run_target(*, section: str, resource: str | None,
                      fields: tuple[str, ...] = (), operation=Operation.UPDATE,
                      changes: dict[str, Any] | None = None,
                      collected: dict[str, Any] | None = None,
-                     previous_workflow: dict[str, Any] | None = None):
+                     previous_workflow: dict[str, Any] | None = None,
+                     answer_field: str | None = None,
+                     answer_type: str = "option_select"):
     schema = FakeSchema()
     pending = FakePending()
     context = SimpleNamespace(
         profile_schema_client=schema, pending_action_service=pending,
         conversation_service=FakeConversations(),
+        entity_memory_service=FakeEntityMemory(),
     )
     workflow = dict(previous_workflow or {})
     workflow.update({
@@ -204,10 +233,15 @@ async def run_target(*, section: str, resource: str | None,
         "workflow_data": workflow,
         "collected_arguments": collected or {}, "entity_memory": {},
     }
+    if answer_field is not None:
+        state["clarification"] = {
+            "answer_type": answer_type,
+            "field": answer_field,
+        }
     result = await resolve_profile_write_node(
         state, SimpleNamespace(context=context)
     )
-    return result, pending
+    return result, pending, schema
 
 
 @pytest.mark.asyncio
@@ -218,7 +252,7 @@ async def test_1_alternate_name_is_direct_field_and_asks_value_immediately():
         confidence=0.99, needs_clarification=False, reason_code="DIRECT_FIELD",
     )
     ProfileTargetResolver._validate_allowlist(resolution, SECTIONS, RESOURCES)
-    result, pending = await run_target(
+    result, pending, _ = await run_target(
         section=BASIC.key, resource=None, fields=(ALTERNATE_NAME.key,),
     )
     clarification = result["response_data"]["clarification"]
@@ -229,7 +263,7 @@ async def test_1_alternate_name_is_direct_field_and_asks_value_immediately():
 
 @pytest.mark.asyncio
 async def test_2_basic_section_lists_direct_fields_and_resources():
-    result, _ = await run_target(section=BASIC.key, resource=None)
+    result, _, _ = await run_target(section=BASIC.key, resource=None)
     options = result["response_data"]["clarification"]["options"]
     values = {item["value"] for item in options}
     assert {"full_name", "gender", "alternate_name", "birth_date"} <= values
@@ -238,14 +272,17 @@ async def test_2_basic_section_lists_direct_fields_and_resources():
 
 @pytest.mark.asyncio
 async def test_3_contact_resource_lists_only_contact_fields():
-    result, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
+    result, _, _ = await run_target(section=BASIC.key, resource=CONTACT.key)
+    assert result["response_data"]["clarification"]["input_type"] == "resource_form"
     options = result["response_data"]["clarification"]["options"]
-    assert {item["value"] for item in options} == {"mobile_phone", "work_email"}
+    assert {item["value"] for item in options} == {
+        "edit:mobile_phone", "edit:work_email", "cancel"
+    }
 
 
 @pytest.mark.asyncio
 async def test_4_add_mobile_is_normalized_to_singleton_update():
-    result, _ = await run_target(
+    result, _, _ = await run_target(
         section=BASIC.key, resource=CONTACT.key, fields=(MOBILE.key,),
         operation=Operation.CREATE,
     )
@@ -255,18 +292,20 @@ async def test_4_add_mobile_is_normalized_to_singleton_update():
 
 @pytest.mark.asyncio
 async def test_5_employment_exposes_all_edition_writable_fields():
-    result, _ = await run_target(section=BASIC.key, resource=EMPLOYMENT.key)
+    result, _, _ = await run_target(section=BASIC.key, resource=EMPLOYMENT.key)
     values = {
         item["value"]
         for item in result["response_data"]["clarification"]["options"]
     }
-    assert values == {"employee_type", "manager", "main_job"}
+    assert values == {
+        "edit:employee_type", "edit:manager", "edit:main_job", "cancel"
+    }
     assert "department" not in values
 
 
 @pytest.mark.asyncio
 async def test_6_derived_education_field_redirects_to_collection():
-    result, pending = await run_target(
+    result, pending, _ = await run_target(
         section=EDUCATION.key, resource=EDUCATION_SUMMARY.key,
         fields=(HIGHEST_EDUCATION.key,),
     )
@@ -281,12 +320,12 @@ async def test_6_derived_education_field_redirects_to_collection():
 
 @pytest.mark.asyncio
 async def test_7_certificate_text_answer_advances_to_next_required_slot():
-    first, _ = await run_target(
+    first, _, _ = await run_target(
         section=EDUCATION.key, resource=CERTIFICATES.key,
         operation=Operation.CREATE,
     )
     assert first["response_data"]["clarification"]["slot_name"] == "certificate_name"
-    second, _ = await run_target(
+    second, _, _ = await run_target(
         section=EDUCATION.key, resource=CERTIFICATES.key,
         operation=Operation.CREATE, collected={"certificate_name": "IELTS"},
         previous_workflow=first["workflow_data"],
@@ -297,11 +336,105 @@ async def test_7_certificate_text_answer_advances_to_next_required_slot():
 
 @pytest.mark.asyncio
 async def test_8_forbidden_field_has_explicit_restriction_reason():
-    result, pending = await run_target(
+    result, pending, _ = await run_target(
         section=BASIC.key, resource=EMPLOYMENT.key,
         fields=(DEPARTMENT.key,), changes={DEPARTMENT.key: "9"},
     )
     assert DEPARTMENT.restriction_reason == "removed_by_edition_write"
     assert result["response_data"]["error_code"] == "PROFILE_OPERATION_FORBIDDEN"
     assert "removed_by_edition_write" in result["response_text"]
+    assert pending.created == []
+
+
+@pytest.mark.asyncio
+async def test_9_direct_update_stays_draft_until_submit():
+    ask, pending, _ = await run_target(
+        section=BASIC.key, resource=None, fields=(ALTERNATE_NAME.key,),
+    )
+    assert pending.created == []
+
+    edited, pending, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={ALTERNATE_NAME.key: "Tên mới"},
+        previous_workflow=ask["workflow_data"],
+    )
+    assert edited["response_data"]["clarification"]["input_type"] == "edit_summary"
+    assert pending.created == []
+
+    reviewed, pending, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=edited["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    assert reviewed["response_data"]["clarification"]["input_type"] == "edit_session_actions"
+    assert pending.created == []
+
+    confirmed, pending, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={"profile_edit_action": "submit"},
+        previous_workflow=reviewed["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    assert confirmed["response_data"]["message_type"] == "confirmation"
+    assert len(pending.created) == 1
+
+
+@pytest.mark.asyncio
+async def test_10_save_draft_does_not_create_pending_action():
+    ask, _, _ = await run_target(
+        section=BASIC.key, resource=None, fields=(ALTERNATE_NAME.key,),
+    )
+    edited, _, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={ALTERNATE_NAME.key: "Tên nháp"},
+        previous_workflow=ask["workflow_data"],
+    )
+    reviewed, _, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=edited["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    saved, pending, schema = await run_target(
+        section=BASIC.key, resource=None,
+        collected={"profile_edit_action": "save_draft"},
+        previous_workflow=reviewed["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    assert saved["response_data"]["draft_saved"] is True
+    assert pending.created == []
+    assert len(schema.saved_drafts) == 1
+    assert schema.saved_drafts[0]["changes"] == {"alternate_name": "Tên nháp"}
+
+
+@pytest.mark.asyncio
+async def test_11_same_value_returns_form_without_pending_action():
+    ask, _, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key, fields=(MOBILE.key,),
+    )
+    result, pending, _ = await run_target(
+        section=BASIC.key, resource=CONTACT.key,
+        collected={MOBILE.key: "0936261889"},
+        previous_workflow=ask["workflow_data"],
+    )
+    assert result["response_data"]["clarification"]["input_type"] == "resource_form"
+    assert result["workflow_data"]["profile_changes"] == {}
+    assert pending.created == []
+
+
+@pytest.mark.asyncio
+async def test_12_raw_text_is_rejected_for_selection_field():
+    ask, _, _ = await run_target(
+        section=BASIC.key, resource=None, fields=(GENDER.key,),
+    )
+    result, pending, _ = await run_target(
+        section=BASIC.key, resource=None,
+        collected={GENDER.key: "Nữ"},
+        previous_workflow=ask["workflow_data"],
+    )
+    clarification = result["response_data"]["clarification"]
+    assert clarification["input_type"] == "single_select"
+    assert "chọn từ danh sách" in result["response_text"]
+    assert result["workflow_data"]["profile_changes"] == {}
     assert pending.created == []

@@ -28,6 +28,11 @@ _WRITE_COMMAND = re.compile(
     r"\b(?:sửa|thêm|xóa|xoá|tạo|cập nhật|thay đổi)\b",
     re.I,
 )
+_GENERIC_NEW_QUERY = re.compile(
+    r"^\s*(?:sửa|thêm|bổ sung|xóa|xoá|tạo|cập nhật|thay đổi|"
+    r"cho tôi xem|xem|thông tin|danh sách|tất cả)\b",
+    re.I,
+)
 _DATE_ANSWER = re.compile(
     r"^(?:"
     r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
@@ -86,6 +91,7 @@ class DialogTurnManager:
         message: str | None,
         structured_clarification: dict[str, object] | None,
         expected_field: str | None = None,
+        expected_input_type: str | None = None,
     ) -> TurnType:
         if structured_clarification is not None:
             return (
@@ -96,15 +102,15 @@ class DialogTurnManager:
         text = (message or "").strip()
         if _WORKFLOW_CANCEL.fullmatch(text):
             return TurnType.WORKFLOW_CANCEL
-        if self._matches_expected_slot(text, expected_field):
+        if _GENERIC_NEW_QUERY.search(text):
+            return TurnType.NEW_QUERY_OVERRIDE
+        if self._matches_expected_slot(
+            text, expected_field, expected_input_type
+        ):
             return TurnType.CLARIFICATION_ANSWER
         if _NAMED_EMPLOYEE_QUERY.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _ADMIN_NEW_INTENT.search(text):
-            return TurnType.NEW_QUERY_OVERRIDE
-        if _PROFILE_BATCH2_NEW_INTENT.search(text):
-            return TurnType.NEW_QUERY_OVERRIDE
-        if _PROFILE_BATCH3_NEW_INTENT.search(text):
             return TurnType.NEW_QUERY_OVERRIDE
         if _CLEAR_NEW_INTENT.search(text) and (
             _QUERY_OR_COMMAND.search(text)
@@ -115,7 +121,10 @@ class DialogTurnManager:
         return TurnType.CLARIFICATION_RETRY
 
     @staticmethod
-    def _matches_expected_slot(text: str, expected_field: str | None) -> bool:
+    def _matches_expected_slot(
+        text: str, expected_field: str | None,
+        expected_input_type: str | None = None,
+    ) -> bool:
         if not text or expected_field is None:
             return False
         if expected_field in {"date", "date_from", "date_to"}:
@@ -124,4 +133,8 @@ class DialogTurnManager:
             return bool(_REQUEST_CODE.fullmatch(text))
         if expected_field in {"leave_type_id", "reason"}:
             return not bool(_CLEAR_NEW_INTENT.search(text))
+        if expected_input_type in {"text", "email", "phone", "number"}:
+            return True
+        if expected_input_type == "record_select":
+            return True
         return False

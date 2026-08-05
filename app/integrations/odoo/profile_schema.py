@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from enum import Enum
 from time import monotonic
@@ -332,6 +333,7 @@ class ProfileSchemaClient:
         resource_key: str,
         field_key: str,
         query: str | None = None,
+        context: dict[str, JsonValue] | None = None,
         *,
         odoo_user_id: int,
         request_id: str,
@@ -345,6 +347,7 @@ class ProfileSchemaClient:
             actor=odoo_user_id,
             request_id=request_id,
             query=query,
+            option_context=context,
         )
         return result.items
 
@@ -437,6 +440,41 @@ class ProfileSchemaClient:
             request_id=request_id, payload=body,
         )
 
+    async def save_draft(
+        self,
+        payload: dict[str, Any],
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> ProfileExecutionResult:
+        resource_key = payload.get("resource_key")
+        section_key = payload.get("section_key")
+        if bool(resource_key) == bool(section_key):
+            raise ProfileSchemaContractError(
+                "Profile draft requires exactly one section or resource"
+            )
+        if resource_key:
+            self._validate_key(str(resource_key))
+        if section_key:
+            self._validate_key(str(section_key))
+        body = {
+            "odoo_user_id": odoo_user_id,
+            "resource_key": resource_key,
+            "section_key": section_key,
+            "operation": payload.get("operation"),
+            "changes": payload.get("changes", {}),
+            "record_id": payload.get("record_id"),
+            "expected_version": payload.get("expected_version"),
+            "idempotency_key": payload.get("idempotency_key"),
+        }
+        body = {key: value for key, value in body.items()
+                if value is not None}
+        return await self._profile_request(
+            "POST", "/api/hrm-chatbot/v1/profile/drafts",
+            ProfileExecutionResult, odoo_user_id=odoo_user_id,
+            request_id=request_id, payload=body,
+        )
+
     async def execute_direct(self, payload: dict[str, Any], *, odoo_user_id: int,
                              request_id: str) -> dict[str, Any]:
         resource_key = str(payload.get("resource_key", ""))
@@ -501,6 +539,7 @@ class ProfileSchemaClient:
         request_id: str,
         operation: Operation | None = None,
         query: str | None = None,
+        option_context: dict[str, JsonValue] | None = None,
     ) -> SchemaT:
         if actor <= 0:
             raise ProfileSchemaAccessDeniedError()
@@ -511,7 +550,16 @@ class ProfileSchemaClient:
             params["operation"] = operation.value
         if query:
             params["query"] = query[:100]
-        cache_key = (actor, path, operation.value if operation else None, query)
+        if option_context:
+            if any(not _CANONICAL_KEY.fullmatch(key)
+                   for key in option_context):
+                raise ProfileSchemaContractError("Invalid option context")
+            params["context"] = json.dumps(
+                option_context, ensure_ascii=False, sort_keys=True
+            )
+        context_key = json.dumps(option_context or {}, sort_keys=True)
+        cache_key = (actor, path, operation.value if operation else None,
+                     query, context_key)
         cached = self._cache.get(cache_key)
         if cached and cached.expires_at > monotonic():
             return cached.value  # type: ignore[return-value]

@@ -207,6 +207,11 @@ class _Pending:
         self.cancelled.append(action_id)
 
 
+class _EntityMemory:
+    def capture(self, *, memory, **kwargs: Any):
+        return memory
+
+
 async def _run(
     query: str,
     intent: Intent,
@@ -220,6 +225,7 @@ async def _run(
         profile_target_resolver=ProfileTargetResolver(llm),
         conversation_service=conversations,
         pending_action_service=_Pending(),
+        entity_memory_service=_EntityMemory(),
     )
     classification = QueryClassification(
         route=QueryRoute.TASK,

@@ -35,6 +35,9 @@ async def detect_turn_type_node(
             expected_field=state.get("workflow_data", {}).get(
                 "current_field"
             ),
+            expected_input_type=state.get("workflow_data", {}).get(
+                "clarification_metadata", {}
+            ).get("input_type"),
         )
     else:
         turn_type = TurnType.NEW_QUERY
