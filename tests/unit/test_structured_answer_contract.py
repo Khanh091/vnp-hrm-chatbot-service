@@ -126,6 +126,7 @@ def test_7_profile_field_edit_is_bounded_to_session_and_field() -> None:
             "field_key": "mobile_phone",
             "value": "0987654321",
             "display_label": "0987654321",
+            "client_action_id": "client-action-1",
         },
     })
     assert request.structured_answer.field_key == "mobile_phone"
@@ -151,6 +152,7 @@ def test_9_profile_override_actions_are_bounded() -> None:
             "type": "profile_edit_action",
             "session_id": "profile-session-1",
             "action": "switch_discard",
+            "client_action_id": "client-action-2",
         },
     })
     assert request.structured_answer.action == "switch_discard"

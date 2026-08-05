@@ -1,5 +1,6 @@
 import logging
 from time import perf_counter
+from uuid import uuid4
 
 from langgraph.runtime import Runtime
 from pydantic import ValidationError
@@ -227,6 +228,11 @@ async def _execute_profile_action(state, runtime, action, started):
                 arguments, odoo_user_id=actor, request_id=state["request_id"]
             )
             result_data = result.model_dump(mode="json")
+            if result.state != "wait" or not result.request_id:
+                raise ProfileSchemaError(
+                    "PROFILE_APPROVAL_WORKFLOW_FAILED",
+                    "Odoo did not move the edition to the approval queue",
+                )
         else:
             result_data = await runtime.context.profile_schema_client.execute_direct(
                 arguments, odoo_user_id=actor, request_id=state["request_id"]
@@ -234,6 +240,20 @@ async def _execute_profile_action(state, runtime, action, started):
         success = True
     except ProfileSchemaError as error:
         error_code = error.reason_code
+    logger.info(
+        "profile_edit_action conversation_id=%s session_id=%s "
+        "action_type=confirm_submit resource_key=%s state_before=SUBMITTING "
+        "state_after=%s draft_field_count=%s odoo_endpoint=%s result_code=%s",
+        state["conversation_id"],
+        action.display_summary.get("workflow_data", {}).get(
+            "profile_edit_session_id"
+        ),
+        arguments.get("resource_key") or arguments.get("section_key"),
+        "SUBMITTED" if success else "ERROR",
+        len(arguments.get("changes", {})),
+        "/api/hrm-chatbot/v1/profile/change-requests",
+        "SUCCESS" if success else error_code,
+    )
     await runtime.context.pending_action_service.finish(
         action.action_id, odoo_user_id=actor, success=success,
         error_code=error_code, result_summary=result_data,
@@ -241,10 +261,37 @@ async def _execute_profile_action(state, runtime, action, started):
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"], actor
     )
-    await runtime.context.conversation_service.update(
-        conversation,
-        status=ConversationStatus.COMPLETED if success else ConversationStatus.FAILED,
-    )
+    if success:
+        await runtime.context.conversation_service.update(
+            conversation, status=ConversationStatus.COMPLETED,
+        )
+    else:
+        workflow_data = dict(action.display_summary.get("workflow_data") or {})
+        review = dict(action.display_summary.get("review") or {})
+        review["form_revision"] = f"form-{uuid4()}"
+        options = [
+            {"value": "save_draft", "label": "Lưu nháp", "description": None},
+            {"value": "submit", "label": "Gửi xác nhận", "description": None},
+            {"value": "continue", "label": "Tiếp tục chỉnh sửa", "description": None},
+            {"value": "cancel", "label": "Hủy thay đổi", "description": None},
+        ]
+        review["options"] = options
+        workflow_data.update({
+            "profile_edit_status": "REVIEWING",
+            "profile_form_revision": review["form_revision"],
+            "current_field": "profile_edit_action",
+            "clarification_options": options,
+            "clarification_metadata": review,
+        })
+        await runtime.context.conversation_service.update(
+            conversation,
+            status=ConversationStatus.AWAITING_CLARIFICATION,
+            pending_tool_name="profile_crud_workflow",
+            collected_arguments={},
+            missing_arguments=["profile_edit_action"],
+            ambiguous_arguments=[],
+            workflow_data=workflow_data,
+        )
     update = stage_update(
         state, event="profile_write_execution_completed",
         timing_name="odoo_execution_ms", started=started,
@@ -282,6 +329,13 @@ async def _execute_profile_action(state, runtime, action, started):
             "response_text": error_messages.get(
                 error_code, "Không thể thực hiện thay đổi hồ sơ."
             ),
-            "response_data": {"error_code": error_code},
+            "response_data": {
+                "error_code": error_code or "PROFILE_SUBMIT_FAILED",
+                "retryable": True,
+                "clarification": review,
+            },
+            "workflow_data": workflow_data,
+            "pending_tool_name": "profile_crud_workflow",
+            "missing_arguments": ["profile_edit_action"],
         })
     return update

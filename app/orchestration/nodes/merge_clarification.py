@@ -1,5 +1,6 @@
 import re
 from datetime import date
+import logging
 from time import perf_counter
 from typing import Any
 
@@ -31,6 +32,8 @@ from app.workflows.structured_answer import (
     InvalidStructuredSelection,
     validate_structured_selection,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def merge_workflow_metadata(
@@ -139,12 +142,31 @@ async def merge_clarification_node(
             expected_session = state.get("workflow_data", {}).get(
                 "profile_edit_session_id"
             )
+            client_action_id = str(structured.get("client_action_id") or "")
+            applied_action_ids = list(
+                state.get("workflow_data", {}).get(
+                    "profile_applied_action_ids", []
+                )
+            )
+            if client_action_id in applied_action_ids:
+                return _invalid_profile_action(
+                    state, started, "PROFILE_ACTION_REPLAYED",
+                    "Thao tác này đã được xử lý trước đó.", field,
+                )
+            expected_revision = state.get("workflow_data", {}).get(
+                "profile_form_revision"
+            )
             if (
                 not expected_session
                 or structured.get("session_id") != expected_session
+                or not client_action_id
+                or structured.get("form_revision") != expected_revision
                 or not isinstance(metadata, dict)
             ):
-                return _invalid_structured_selection(state, started, field)
+                return _invalid_profile_action(
+                    state, started, "PROFILE_EDIT_SESSION_INVALID_STATE",
+                    "Biểu mẫu đã thay đổi. Vui lòng dùng biểu mẫu hiện tại.", field,
+                )
             if answer_type == "profile_edit_action":
                 allowed_actions = {
                     str(item.get("value"))
@@ -153,7 +175,10 @@ async def merge_clarification_node(
                 }
                 action = str(structured.get("value") or "")
                 if action not in allowed_actions:
-                    return _invalid_structured_selection(state, started, field)
+                    return _invalid_profile_action(
+                        state, started, "PROFILE_EDIT_SESSION_INVALID_STATE",
+                        "Thao tác không hợp lệ ở trạng thái hiện tại.", field,
+                    )
                 arguments["profile_edit_action"] = action
                 validated_user_message = str(structured.get("label") or action)
                 validated_structured = dict(structured)
@@ -185,7 +210,64 @@ async def merge_clarification_node(
                     if input_type == "boolean":
                         allowed.update({"true", "false"})
                     if str(value).lower() not in allowed:
-                        return _invalid_structured_selection(state, started, field)
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_OPTION_NOT_ALLOWED",
+                            "Lựa chọn này không thuộc danh sách hiện tại.",
+                            field_key,
+                        )
+                    issued_set = field_metadata.get("option_set_id")
+                    if issued_set and structured.get("option_set_id") != issued_set:
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_OPTION_SET_STALE",
+                            "Danh sách lựa chọn đã thay đổi. Vui lòng chọn lại.",
+                            field_key,
+                        )
+                elif input_type == "searchable_select":
+                    context = _profile_field_context(metadata, field_metadata)
+                    supplied_context = structured.get("option_context") or {}
+                    if supplied_context != context:
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_DEPENDENCY_CHANGED",
+                            "Trường phụ thuộc đã thay đổi. Vui lòng chọn lại.",
+                            field_key,
+                        )
+                    try:
+                        option_set = await (
+                            runtime.context.profile_schema_client
+                            .get_field_option_set(
+                                str(metadata.get("resource_key") or ""),
+                                field_key,
+                                str(structured.get("label") or "") or None,
+                                context,
+                                odoo_user_id=int(trusted_data["odoo_user_id"]),
+                                request_id=state["request_id"],
+                            )
+                        )
+                    except Exception:
+                        logger.warning(
+                            "profile_option_validation_failed conversation_id=%s "
+                            "session_id=%s field_key=%s",
+                            state.get("conversation_id"), expected_session, field_key,
+                        )
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_OPTION_SET_STALE",
+                            "Không thể kiểm tra danh sách hiện tại. Vui lòng tải lại.",
+                            field_key,
+                        )
+                    if structured.get("option_set_id") != option_set.option_set_id:
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_OPTION_SET_STALE",
+                            "Danh sách lựa chọn đã thay đổi. Vui lòng chọn lại.",
+                            field_key,
+                        )
+                    if not any(
+                        str(item.value) == str(value) for item in option_set.items
+                    ):
+                        return _invalid_profile_action(
+                            state, started, "PROFILE_OPTION_NOT_ALLOWED",
+                            "Lựa chọn này không thuộc danh sách hiện tại.",
+                            field_key,
+                        )
                 elif input_type == "date":
                     try:
                         date.fromisoformat(str(value))
@@ -204,6 +286,9 @@ async def merge_clarification_node(
                 )
                 validated_structured = dict(structured)
                 resolved = True
+            workflow_overrides["profile_applied_action_ids"] = (
+                applied_action_ids + [client_action_id]
+            )[-100:]
             structured = None
         try:
             trusted_selection = validate_structured_selection(
@@ -730,6 +815,52 @@ def _invalid_structured_selection(
             "Vui lòng chọn lại từ danh sách hiện tại."
         ),
         "response_data": {"error_code": "INVALID_STRUCTURED_SELECTION"},
+        "user_message": None,
+        "clarification": None,
+    }
+
+
+def _profile_field_context(metadata, field_metadata):
+    fields = {
+        str(item.get("field_key")): item
+        for item in metadata.get("fields", [])
+        if isinstance(item, dict) and item.get("field_key")
+    }
+    result = {}
+    for key in field_metadata.get("options_context_keys", []):
+        dependency = fields.get(str(key), {})
+        value = dependency.get("draft_raw_value")
+        if value is None:
+            value = dependency.get("current_raw_value")
+        if isinstance(value, dict):
+            value = value.get("value")
+        if value not in (None, ""):
+            result[str(key)] = value
+    return result
+
+
+def _invalid_profile_action(state, started, code, text, field_key):
+    logger.info(
+        "profile_edit_action_rejected conversation_id=%s session_id=%s "
+        "field_key=%s result_code=%s",
+        state.get("conversation_id"),
+        state.get("workflow_data", {}).get("profile_edit_session_id"),
+        field_key, code,
+    )
+    return {
+        **stage_update(
+            state, event="profile_edit_action_rejected",
+            timing_name="argument_merge_ms", started=started,
+            data={"field_key": field_key, "reason_code": code},
+        ),
+        "response_type": ChatResponseType.ERROR,
+        "capability_outcome": CapabilityOutcome.INVALID,
+        "response_text": text,
+        "response_data": {
+            "error_code": code,
+            "field_errors": ({str(field_key): text} if field_key else {}),
+            "retryable": code != "PROFILE_ACTION_REPLAYED",
+        },
         "user_message": None,
         "clarification": None,
     }

@@ -7,7 +7,7 @@ from enum import Enum
 from time import monotonic
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from app.integrations.odoo.client import OdooClient
 from app.integrations.odoo.exceptions import (
@@ -158,6 +158,8 @@ class ProfileOptionList(BaseModel):
     section_key: str | None = None
     resource_key: str | None = None
     field_key: str
+    option_set_id: str | None = None
+    depends_on: dict[str, JsonValue] = Field(default_factory=dict)
     items: tuple[ProfileOption, ...] = ()
 
 
@@ -185,6 +187,8 @@ class ProfileSnapshot(BaseModel):
     resource_key: str | None = None
     snapshot: dict[str, Any]
     version: str
+    approved_snapshot: dict[str, Any] | None = None
+    edition_snapshot: dict[str, Any] | None = None
 
 
 class ProfileExecutionResult(BaseModel):
@@ -196,6 +200,10 @@ class ProfileExecutionResult(BaseModel):
     request_id: int | None = None
     state: str | None = None
     message: str | None = None
+    draft_saved: bool | None = None
+    snapshot: dict[str, Any] | None = None
+    version: str | None = None
+    record_id: int | None = None
 
 
 class ProfileDirectResult(BaseModel):
@@ -338,9 +346,25 @@ class ProfileSchemaClient:
         odoo_user_id: int,
         request_id: str,
     ) -> tuple[ProfileOption, ...]:
+        result = await self.get_field_option_set(
+            resource_key, field_key, query, context,
+            odoo_user_id=odoo_user_id, request_id=request_id,
+        )
+        return result.items
+
+    async def get_field_option_set(
+        self,
+        resource_key: str,
+        field_key: str,
+        query: str | None = None,
+        context: dict[str, JsonValue] | None = None,
+        *,
+        odoo_user_id: int,
+        request_id: str,
+    ) -> ProfileOptionList:
         self._validate_key(resource_key)
         self._validate_key(field_key)
-        result = await self._get(
+        return await self._get(
             f"{self.SECTIONS_PATH.rsplit('/sections', 1)[0]}/resources/"
             f"{resource_key}/fields/{field_key}/options",
             ProfileOptionList,
@@ -349,7 +373,6 @@ class ProfileSchemaClient:
             query=query,
             option_context=context,
         )
-        return result.items
 
     async def get_section_field_options(
         self,

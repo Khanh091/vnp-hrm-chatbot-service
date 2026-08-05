@@ -109,6 +109,10 @@ async def _run_pipeline(
                 "answer_type": answer.type.value,
                 "slot_name": answer.field_key,
                 "session_id": answer.session_id,
+                "client_action_id": answer.client_action_id,
+                "form_revision": answer.form_revision,
+                "option_set_id": answer.option_set_id,
+                "option_context": answer.option_context or {},
             },
         )
     if answer is not None and answer.type is StructuredAnswerType.PROFILE_EDIT_ACTION:
@@ -122,6 +126,8 @@ async def _run_pipeline(
                 "answer_type": answer.type.value,
                 "slot_name": "profile_edit_action",
                 "session_id": answer.session_id,
+                "client_action_id": answer.client_action_id,
+                "form_revision": answer.form_revision,
             },
         )
     if answer is not None:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import logging
 import unicodedata
 from time import perf_counter
 from typing import Any
@@ -31,6 +34,7 @@ from app.routing.schemas import QueryClassification
 from app.routing.taxonomy import Operation
 
 PROFILE_WORKFLOW = "profile_crud_workflow"
+logger = logging.getLogger(__name__)
 
 
 async def resolve_profile_write_node(
@@ -452,23 +456,35 @@ async def resolve_profile_write_node(
         # Collection creates often start without field_keys, which previously made
         # a value such as "IELTS" disappear and caused the same question to repeat.
         previous_changes = dict(changes)
-        for definition in resource.fields:
-            if definition.key in collected:
-                changes[definition.key] = collected[definition.key]
-                previous_value = previous_changes.get(
-                    definition.key,
-                    workflow_data.get("profile_current_snapshot", {}).get(
-                        definition.key
-                    ),
+        applied_field_key = (
+            str(answer_field) if answer_field in {item.key for item in resource.fields}
+            else str(workflow_data.get("current_field") or "")
+        )
+        if applied_field_key not in {item.key for item in resource.fields}:
+            supplied_keys = [
+                item.key for item in resource.fields if item.key in collected
+            ]
+            applied_field_key = supplied_keys[0] if len(supplied_keys) == 1 else ""
+        applied_definition = next(
+            (item for item in resource.fields if item.key == applied_field_key),
+            None,
+        )
+        if applied_definition is not None and applied_field_key in collected:
+            applied_value = collected[applied_field_key]
+            previous_value = previous_changes.get(
+                applied_field_key,
+                workflow_data.get("profile_current_snapshot", {}).get(
+                    applied_field_key
+                ),
+            )
+            changes[applied_field_key] = applied_value
+            if not profile_values_equal(
+                applied_definition, previous_value, applied_value
+            ):
+                _clear_invalid_dependents(
+                    resource.fields, applied_field_key, changes, change_labels,
+                    workflow_data.setdefault("profile_option_sets", {}),
                 )
-                if not _same_value(previous_value, collected[definition.key]):
-                    for dependent in resource.fields:
-                        if (
-                            definition.key in dependent.depends_on
-                            and dependent.clear_when_dependency_changes
-                        ):
-                            changes.pop(dependent.key, None)
-                            change_labels.pop(dependent.key, None)
 
         selected_fields = [
             field for field in resource.fields if field.key in field_keys
@@ -673,9 +689,12 @@ async def resolve_profile_write_node(
             )
             current_snapshot = dict(current.snapshot)
             expected_version = current.version
+            definitions = {item.key: item for item in resource.fields}
             changes = {
                 key: value for key, value in changes.items()
-                if not _same_value(current_snapshot.get(key), value)
+                if key in definitions and not profile_values_equal(
+                    definitions[key], current_snapshot.get(key), value
+                )
             }
             if not changes:
                 return await _profile_draft_form(
@@ -709,6 +728,17 @@ async def resolve_profile_write_node(
                 expected_version, changes, write_mode, workflow_data,
             )
         draft_fields = selected_fields or list(operation_fields)
+        field_errors = _validate_profile_fields(
+            draft_fields, changes, operation=operation
+        )
+        if field_errors and edit_action in {"finish", "save_draft", "submit"}:
+            return await _profile_draft_form(
+                state, runtime, started, classification, operation,
+                workflow_data, resource, list(operation_fields),
+                record_reference, changes, current_snapshot, expected_version,
+                notice=next(iter(field_errors.values())),
+                missing_required=list(field_errors),
+            )
         if edit_action == "submit":
             return await _create_profile_confirmation(
                 state, runtime, started, classification, resource, operation,
@@ -760,6 +790,30 @@ async def resolve_profile_write_node(
             "PROFILE_FIELD_NOT_WRITABLE": "Trường hồ sơ này không thể thay đổi.",
             "PROFILE_INVALID_VALUE": "Giá trị hồ sơ không hợp lệ.",
             "PROFILE_RECORD_CHANGED": "Dòng hồ sơ đã thay đổi; vui lòng kiểm tra lại.",
+            "PROFILE_DRAFT_EMPTY": "Bản nháp chưa có thay đổi để lưu.",
+            "PROFILE_DRAFT_SAVE_FAILED": (
+                "Odoo chưa xác nhận dữ liệu bản nháp sau khi tải lại. "
+                "Các thay đổi trong phiên vẫn được giữ để thử lại."
+            ),
+            "PROFILE_DRAFT_VERSION_CONFLICT": (
+                "Hồ sơ tự khai đã thay đổi ở nơi khác. Vui lòng tải lại trước khi lưu."
+            ),
+            "PROFILE_EDIT_SESSION_INVALID_STATE": (
+                "Hồ sơ tự khai hiện không ở trạng thái cho phép chỉnh sửa."
+            ),
+            "PROFILE_OPTION_SET_STALE": (
+                "Danh sách lựa chọn đã thay đổi. Vui lòng chọn lại."
+            ),
+            "PROFILE_OPTION_NOT_ALLOWED": (
+                "Lựa chọn không hợp lệ trong ngữ cảnh hiện tại."
+            ),
+            "PROFILE_DEPENDENCY_CHANGED": (
+                "Trường phụ thuộc đã thay đổi. Vui lòng chọn lại."
+            ),
+            "PROFILE_REQUIRED_FIELD_MISSING": (
+                "Vui lòng hoàn thiện các trường bắt buộc."
+            ),
+            "PROFILE_DATE_RANGE_INVALID": "Khoảng ngày không hợp lệ.",
         }
         outcome = (
             CapabilityOutcome.NOT_FOUND
@@ -796,9 +850,17 @@ async def _resolve_direct_field_update(
     operation = Operation.UPDATE
     classification = classification.model_copy(update={"operation": operation})
     collected = dict(state.get("collected_arguments", {}))
-    for field in section.direct_fields:
-        if field.key in collected:
-            changes[field.key] = collected[field.key]
+    structured_answer = state.get("clarification")
+    answer_field = (
+        structured_answer.get("field")
+        if isinstance(structured_answer, dict) else None
+    )
+    applied_key = (
+        str(answer_field) if answer_field in {item.key for item in section.direct_fields}
+        else str(workflow_data.get("current_field") or "")
+    )
+    if applied_key in collected:
+        changes[applied_key] = collected[applied_key]
 
     forbidden = next(
         (field for field in selected_fields if not field.updatable), None
@@ -823,7 +885,6 @@ async def _resolve_direct_field_update(
     previous_input_type = workflow_data.get(
         "clarification_metadata", {}
     ).get("input_type")
-    structured_answer = state.get("clarification")
     if (
         current_field_key in collected
         and previous_input_type in {"single_select", "searchable_select"}
@@ -875,9 +936,12 @@ async def _resolve_direct_field_update(
             missing_profile_slots=[field.key for field in missing],
         )
 
+    definitions = {item.key: item for item in section.direct_fields}
     changes = {
         key: value for key, value in changes.items()
-        if not _same_value(current_snapshot.get(key), value)
+        if key in definitions and not profile_values_equal(
+            definitions[key], current_snapshot.get(key), value
+        )
     }
     if not changes:
         return await _direct_draft_form(
@@ -941,9 +1005,10 @@ def _draft_field_rows(
         draft_display = draft_labels.get(
             field.key, _display_value(changes.get(field.key))
         )
-        changed = field.key in changes and not _same_value(
-            current, changes[field.key]
+        changed = field.key in changes and not profile_values_equal(
+            field, current, changes[field.key]
         )
+        embedded_options = _options(field.selection_values)
         rows.append({
             "field_key": field.key,
             "label": field.label,
@@ -967,7 +1032,11 @@ def _draft_field_rows(
             "description": field.description,
             "required": field.required_on_create and operation is Operation.CREATE,
             "readonly": not field.allows(operation),
-            "options": _options(field.selection_values),
+            "options": embedded_options,
+            "option_set_id": (
+                _embedded_option_set_id(field, embedded_options)
+                if embedded_options else None
+            ),
             "depends_on": list(field.depends_on),
             "options_context_keys": list(field.options_context_keys),
             "range_group": field.range_group,
@@ -1017,6 +1086,7 @@ async def _profile_draft_form(
             "profile_edit_session_id"
         ) or f"profile-{uuid4()}",
         "profile_form_field_keys": [field.key for field in editable],
+        "profile_form_revision": f"form-{uuid4()}",
     })
     return await _clarification(
         state, runtime, started, classification, operation, workflow_data,
@@ -1036,6 +1106,7 @@ async def _profile_draft_form(
             ),
             "status": "EDITING",
             "session_id": workflow_data["profile_edit_session_id"],
+            "form_revision": workflow_data["profile_form_revision"],
             "mode": operation.value,
             "section_key": resource.section_key,
             "resource_key": resource.key,
@@ -1044,8 +1115,14 @@ async def _profile_draft_form(
                 if workflow_data.get("profile_record_id") is not None else None
             ),
             "draft_count": sum(
-                not _same_value(current_snapshot.get(key), value)
+                not profile_values_equal(
+                    next(
+                        item for item in resource.fields if item.key == key
+                    ),
+                    current_snapshot.get(key), value,
+                )
                 for key, value in changes.items()
+                if key in {item.key for item in resource.fields}
             ),
         },
     )
@@ -1081,6 +1158,11 @@ async def _direct_draft_form(
         "profile_expected_version": expected_version,
         "profile_changes": changes,
         "profile_edit_status": "EDITING",
+        "profile_edit_session_id": workflow_data.get(
+            "profile_edit_session_id"
+        ) or f"profile-{uuid4()}",
+        "profile_form_revision": f"form-{uuid4()}",
+        "profile_form_field_keys": [field.key for field in fields],
     })
     return await _clarification(
         state, runtime, started, classification, Operation.UPDATE,
@@ -1097,6 +1179,8 @@ async def _direct_draft_form(
                 draft_labels=workflow_data.get("profile_change_labels"),
             ),
             "status": "EDITING",
+            "session_id": workflow_data["profile_edit_session_id"],
+            "form_revision": workflow_data["profile_form_revision"],
         },
     )
 
@@ -1128,6 +1212,7 @@ async def _profile_edit_summary(
         "profile_edit_session_id": workflow_data.get(
             "profile_edit_session_id"
         ) or f"profile-{uuid4()}",
+        "profile_form_revision": f"form-{uuid4()}",
     })
     return await _clarification(
         state, runtime, started, classification, operation, workflow_data,
@@ -1146,12 +1231,14 @@ async def _profile_edit_summary(
         extra_metadata={
             "title": resource.label if resource else section.label,
             "fields": _draft_field_rows(
-                fields, current_snapshot, changes, operation,
+                [field for field in fields if field.key in changes],
+                current_snapshot, changes, operation,
                 draft_labels=workflow_data.get("profile_change_labels"),
             ),
             "status": "REVIEWING",
             "write_mode": write_mode.value,
             "session_id": workflow_data["profile_edit_session_id"],
+            "form_revision": workflow_data["profile_form_revision"],
             "mode": operation.value,
             "section_key": section.key if section else resource.section_key,
             "resource_key": resource.key if resource else None,
@@ -1227,6 +1314,22 @@ async def _save_profile_draft(
             current_snapshot, expected_version, notice=notice,
             allow_finish=False,
         )
+    if result.draft_saved is not True:
+        raise ProfileSchemaError(
+            "PROFILE_DRAFT_SAVE_FAILED",
+            "Odoo did not acknowledge a persisted draft",
+        )
+    await _verify_saved_draft(
+        state, runtime, section, resource, operation, record_id, changes, result
+    )
+    logger.info(
+        "profile_edit_action conversation_id=%s session_id=%s action_type=save_draft "
+        "resource_key=%s state_before=REVIEWING state_after=DRAFT_SAVED "
+        "draft_field_count=%s odoo_endpoint=%s result_code=SUCCESS",
+        state["conversation_id"], workflow_data.get("profile_edit_session_id"),
+        resource.key if resource else section.key if section else None,
+        len(changes), "/api/hrm-chatbot/v1/profile/drafts",
+    )
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"],
         int(state["trusted_context"]["odoo_user_id"]),
@@ -1253,6 +1356,49 @@ async def _save_profile_draft(
         "pending_tool_name": None,
     })
     return update
+
+
+async def _verify_saved_draft(
+    state, runtime, section, resource, operation, record_id, changes, result
+):
+    actor = int(state["trusted_context"]["odoo_user_id"])
+    request_id = state["request_id"]
+    definitions = {
+        item.key: item
+        for item in (section.direct_fields if section is not None else resource.fields)
+    }
+    if section is not None:
+        reloaded = await runtime.context.profile_schema_client.get_section_snapshot(
+            section.key, odoo_user_id=actor, request_id=request_id
+        )
+        snapshot = reloaded.snapshot
+    elif resource.resource_type == "singleton":
+        reloaded = await runtime.context.profile_schema_client.get_current_snapshot(
+            resource.key, odoo_user_id=actor, request_id=request_id
+        )
+        snapshot = reloaded.snapshot
+    else:
+        verified_record_id = result.record_id or record_id
+        if not verified_record_id:
+            raise ProfileSchemaError(
+                "PROFILE_DRAFT_SAVE_FAILED",
+                "Odoo draft response did not include the edition record token",
+            )
+        reloaded = await runtime.context.profile_schema_client.get_record(
+            resource.key, int(verified_record_id),
+            odoo_user_id=actor, request_id=request_id,
+        )
+        snapshot = reloaded.snapshot
+    mismatches = [
+        key for key, value in changes.items()
+        if key not in definitions
+        or not profile_values_equal(definitions[key], snapshot.get(key), value)
+    ]
+    if mismatches:
+        raise ProfileSchemaError(
+            "PROFILE_DRAFT_SAVE_FAILED",
+            "Reloaded edition draft does not contain the accepted changes",
+        )
 
 
 async def _resume_deferred_profile_query(
@@ -1436,7 +1582,25 @@ async def _create_profile_confirmation(
         tool_name=PROFILE_WORKFLOW,
         tool_version="1.0",
         validated_arguments=arguments,
-        display_summary={"summary": summary, "workflow_data": workflow_data},
+        display_summary={
+            "summary": summary,
+            "workflow_data": workflow_data,
+            "review": {
+                "input_type": "edit_session_actions",
+                "slot_name": "profile_edit_action",
+                "title": resource.label if resource else section.label,
+                "fields": _draft_field_rows(
+                    [item for item in selected_fields if item.key in changes],
+                    current_snapshot, changes, operation,
+                    draft_labels=change_labels,
+                ),
+                "status": "REVIEWING",
+                "session_id": workflow_data.get("profile_edit_session_id"),
+                "mode": operation.value,
+                "section_key": section.key if section else resource.section_key,
+                "resource_key": resource.key if resource else None,
+            },
+        },
     )
     conversation = await runtime.context.conversation_service.load_owned(
         state["conversation_id"], int(trusted["odoo_user_id"])
@@ -1576,7 +1740,110 @@ def _display_value(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+def profile_values_equal(
+    field: ProfileField, current: Any, proposed: Any
+) -> bool:
+    """Compare canonical values; display labels never create a profile diff."""
+    current = _canonical_profile_value(field, current)
+    proposed = _canonical_profile_value(field, proposed)
+    return current == proposed
+
+
+def _canonical_profile_value(field: ProfileField, value: Any) -> Any:
+    if isinstance(value, dict):
+        value = value.get("value")
+    if field.field_type == "many2many":
+        values = value if isinstance(value, list) else ([] if value is None else [value])
+        normalized = []
+        for item in values:
+            if isinstance(item, dict):
+                item = item.get("value")
+            if item not in (None, "", False):
+                normalized.append(str(item))
+        return tuple(sorted(normalized))
+    if value in (None, ""):
+        return None
+    if field.field_type in {"many2one", "selection"}:
+        return str(value)
+    if field.field_type == "boolean":
+        if isinstance(value, str):
+            return value.strip().casefold() in {"1", "true", "yes", "có"}
+        return bool(value)
+    if field.field_type == "integer":
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if field.field_type == "decimal":
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+    if field.field_type in {"phone", "email"}:
+        compact = str(value).strip().casefold()
+        return "".join(compact.split())
+    if field.field_type in {"text", "long_text"}:
+        return str(value).strip()
+    if field.field_type == "date":
+        return str(value)[:10]
+    return value
+
+
+def _clear_invalid_dependents(
+    fields, changed_key, changes, labels, option_sets
+) -> None:
+    pending = [changed_key]
+    while pending:
+        dependency = pending.pop()
+        for field in fields:
+            if (
+                dependency in field.depends_on
+                and field.clear_when_dependency_changes
+            ):
+                had_value = field.key in changes
+                changes.pop(field.key, None)
+                labels.pop(field.key, None)
+                option_sets.pop(field.key, None)
+                if had_value:
+                    pending.append(field.key)
+
+
+def _validate_profile_fields(fields, changes, *, operation):
+    errors = {}
+    if operation is Operation.CREATE:
+        for field in fields:
+            if field.required_on_create and changes.get(field.key) in (None, ""):
+                errors[field.key] = f"Vui lòng nhập {field.label}."
+    for field in fields:
+        validator = field.validator or ""
+        if not validator.startswith("gte:"):
+            continue
+        start_key = validator.split(":", 1)[1]
+        start = changes.get(start_key)
+        end = changes.get(field.key)
+        if start in (None, "") or end in (None, ""):
+            continue
+        if str(start)[:10] > str(end)[:10]:
+            errors[field.key] = (
+                f"{field.label} phải bằng hoặc sau trường bắt đầu."
+            )
+    return errors
+
+
+def _embedded_option_set_id(field, options):
+    payload = json.dumps(
+        {
+            "field": field.key,
+            "values": [str(item.get("value")) for item in options],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _same_value(current: Any, proposed: Any) -> bool:
+    """Compatibility helper for callers without field metadata."""
     if isinstance(current, dict):
         current = current.get("value")
     if isinstance(proposed, dict):

@@ -111,6 +111,7 @@ class FakeSchema:
     def __init__(self, save_error: ProfileSchemaError | None = None) -> None:
         self.saved_drafts: list[dict[str, Any]] = []
         self.save_error = save_error
+        self.saved_values: dict[str, Any] = {}
 
     async def get_sections(self, operation, **kwargs):
         return SECTIONS
@@ -143,13 +144,14 @@ class FakeSchema:
     async def get_section_snapshot(self, key, **kwargs):
         return ProfileSnapshot(
             section_key=key,
-            snapshot={"alternate_name": "Định Lò"},
+            snapshot={"alternate_name": "Định Lò", **self.saved_values},
             version="section-v1",
         )
 
     async def get_current_snapshot(self, key, **kwargs):
         return ProfileSnapshot(
-            resource_key=key, snapshot={"mobile_phone": "0936261889"},
+            resource_key=key,
+            snapshot={"mobile_phone": "0936261889", **self.saved_values},
             version="resource-v1",
         )
 
@@ -166,9 +168,12 @@ class FakeSchema:
         self.saved_drafts.append(payload)
         if self.save_error is not None:
             raise self.save_error
+        self.saved_values.update(payload.get("changes", {}))
         return SimpleNamespace(
             message=("Các thay đổi đã được lưu vào hồ sơ tự khai nhưng "
                      "chưa gửi phê duyệt."),
+            draft_saved=True,
+            record_id=payload.get("record_id"),
         )
 
 
