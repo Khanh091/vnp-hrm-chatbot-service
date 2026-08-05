@@ -30,6 +30,13 @@ CHANGE_FIELD_OPTIONS = (
     {"value": "multiple", "label": "Sửa nhiều thông tin"},
 )
 
+CREATE_FIELD_LABELS = {
+    "date_from": "Ngày bắt đầu",
+    "date_to": "Ngày kết thúc",
+    "leave_type": "Loại nghỉ",
+    "reason": "Lý do",
+}
+
 
 def records_from_payload(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
@@ -216,6 +223,35 @@ def confirmation_summary(
         ),
         "changes": rows,
     }
+
+
+def create_confirmation_summary(
+    arguments: dict[str, Any],
+    *,
+    leave_type_label: str,
+) -> dict[str, Any]:
+    """Build the same bounded row contract rendered by ConfirmationCard."""
+
+    values = {
+        "date_from": arguments.get("date_from"),
+        "date_to": arguments.get("date_to"),
+        "leave_type": leave_type_label,
+        "reason": arguments.get("reason"),
+    }
+    rows = []
+    for field, value in values.items():
+        if value in (None, ""):
+            continue
+        if field in {"date_from", "date_to"}:
+            value = _display_date(value)
+        rows.append(
+            {
+                "field": field,
+                "label": CREATE_FIELD_LABELS[field],
+                "to": str(value),
+            }
+        )
+    return {"changes": rows}
 
 
 def _display_date(value: Any) -> str:

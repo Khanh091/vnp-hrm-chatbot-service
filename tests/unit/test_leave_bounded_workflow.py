@@ -1,9 +1,12 @@
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+from app.answers.prompts import build_final_answer_prompt
+from app.answers.schemas import FinalAnswerContext
 from app.api.schemas.chat import ChatRequest
 from app.common.error_messages import public_error_message
 from app.context.conversation import PendingActionStatus
@@ -11,8 +14,9 @@ from app.context.entity_memory import ConversationEntityMemory, EntityMemoryServ
 from app.context.entity_resolver import BusinessEntityResolver, EntityResolver
 from app.context.pending_action_service import PendingActionError, PendingActionService
 from app.integrations.odoo.client import OdooClient
+from app.orchestration.nodes.create_confirmation import create_confirmation_node
 from app.routing.rules import infer_rule_hints
-from app.routing.taxonomy import Intent
+from app.routing.taxonomy import Intent, Operation, QueryRoute
 from app.tools import build_tool_registry
 from app.tools.definitions import ToolExecutionResult, TrustedExecutionContext
 from app.tools.executor import ToolExecutor
@@ -20,9 +24,11 @@ from app.tools.response_formatter import ToolResponseFormatter
 from app.workflows.leave_action import (
     LeaveRequestSnapshot,
     actionable_options,
+    create_confirmation_summary,
     trusted_selected_request,
     validated_patch,
 )
+from app.workflows.registry import build_workflow_registry
 from tests.conftest import build_settings
 
 ACTIONABLE = {
@@ -206,17 +212,109 @@ def test_leave_type_button_keeps_label_and_description() -> None:
     assert options[0].description == "Không yêu cầu số dư phép"
 
 
+def test_create_confirmation_uses_renderable_rows() -> None:
+    summary = create_confirmation_summary(
+        {
+            "date_from": "2026-08-05",
+            "date_to": "2026-08-05",
+            "leave_type_id": 2,
+            "reason": "bận việc",
+            "request_unit": "day",
+        },
+        leave_type_label="Không lương",
+    )
+
+    assert summary == {
+        "changes": [
+            {
+                "field": "date_from",
+                "label": "Ngày bắt đầu",
+                "to": "05/08/2026",
+            },
+            {
+                "field": "date_to",
+                "label": "Ngày kết thúc",
+                "to": "05/08/2026",
+            },
+            {
+                "field": "leave_type",
+                "label": "Loại nghỉ",
+                "to": "Không lương",
+            },
+            {"field": "reason", "label": "Lý do", "to": "bận việc"},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_confirmation_node_returns_live_card_metadata() -> None:
+    captured = {}
+
+    class PendingActions:
+        async def create(self, **values):
+            captured["pending"] = values
+            return SimpleNamespace(
+                action_id="action-create-leave",
+                expires_at=datetime(2026, 8, 5, 9, 34, tzinfo=timezone.utc),
+            )
+
+    class Conversations:
+        async def load_owned(self, conversation_id, odoo_user_id):
+            return SimpleNamespace(
+                conversation_id=conversation_id,
+                odoo_user_id=odoo_user_id,
+            )
+
+        async def update(self, conversation, **values):
+            captured["conversation"] = values
+
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(
+            tool_registry=build_tool_registry(),
+            workflow_registry=build_workflow_registry(),
+            pending_action_service=PendingActions(),
+            conversation_service=Conversations(),
+        )
+    )
+    update = await create_confirmation_node(
+        {
+            "conversation_id": "conversation-create-leave",
+            "pending_tool_name": "leave_create_request",
+            "trusted_context": {"odoo_user_id": 42},
+            "collected_arguments": {
+                "date_from": "2026-08-05",
+                "date_to": "2026-08-05",
+                "leave_type_id": 2,
+                "reason": "bận việc",
+                "request_unit": "day",
+                "idempotency_key": "create-leave-1",
+            },
+            "workflow_data": {
+                "leave_type_options": [{"value": "2", "label": "Không lương"}]
+            },
+        },
+        runtime,
+    )
+
+    card = update["response_data"]
+    assert card["action"] == "create"
+    assert card["confirm_label"] == "Xác nhận tạo đơn nghỉ phép"
+    assert card["summary"]["changes"][2]["to"] == "Không lương"
+    assert card["summary"]["changes"][3]["to"] == "bận việc"
+    assert captured["pending"]["display_summary"] == card["summary"]
+
+
 def test_leave_balance_uses_pending_breakdown_without_inference() -> None:
     answer = ToolResponseFormatter().format(
         "leave_get_balance",
         result(
             {
                 "allocated_days": 17,
-                    "approved_used_days": 5,
-                    "pending_days": 5,
-                    "draft_days": 2,
-                    "remaining_days": 12,
-                    "available_days": 7,
+                "approved_used_days": 5,
+                "pending_days": 5,
+                "draft_days": 2,
+                "remaining_days": 12,
+                "available_days": 7,
                 "validity": "2026-12-31",
             }
         ),
@@ -227,6 +325,32 @@ def test_leave_balance_uses_pending_breakdown_without_inference() -> None:
     assert "sử dụng 7 ngày theo tiến độ tích lũy" in answer
     assert "5 ngày chờ duyệt và 2 ngày nháp" in answer
     assert "không giữ số dư phép" in answer
+
+
+def test_leave_balance_llm_prompt_requires_annual_and_current_breakdown() -> None:
+    prompt = build_final_answer_prompt(
+        FinalAnswerContext(
+            original_query="Tôi còn bao nhiêu ngày phép?",
+            route=QueryRoute.DATA_QUERY,
+            intent=Intent.LEAVE_BALANCE,
+            operation=Operation.READ,
+            tool_name="leave_get_balance",
+            data={
+                "allocated_days": 12,
+                "approved_used_days": 0,
+                "remaining_days": 12,
+                "available_days": 8,
+                "pending_reserves_allocation": False,
+                "draft_reserves_allocation": False,
+            },
+            locale="vi_VN",
+            timezone="Asia/Ho_Chi_Minh",
+        )
+    )
+
+    assert "phân biệt rõ tổng hạn mức năm" in prompt
+    assert "mức khả dụng hiện tại theo tiến độ tích lũy" in prompt
+    assert "không mô tả phần chênh lệch là ngày đã nghỉ" in prompt
 
 
 def test_attendance_monthly_preserves_odoo_business_fields() -> None:

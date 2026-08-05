@@ -237,3 +237,37 @@ async def test_6_ambiguous_department_returns_structured_options() -> None:
         "BĐT Sơn La",
         "BĐT TP Sơn La",
     ]
+
+
+@pytest.mark.asyncio
+async def test_7_ambiguous_employees_show_employee_codes() -> None:
+    provider = DirectoryLookupStub(
+        employees=[
+            ResolvedSubject(
+                type=SubjectType.EMPLOYEE,
+                employee_id=41,
+                employee_code="00234086",
+                employee_name="NGUYỄN ANH TUẤN",
+            ),
+            ResolvedSubject(
+                type=SubjectType.EMPLOYEE,
+                employee_id=42,
+                employee_code="00999999",
+                employee_name="NGUYỄN ANH TUẤN",
+            ),
+        ]
+    )
+
+    resolution = await SubjectResolver(provider).resolve(
+        SubjectMention(
+            type=SubjectType.EMPLOYEE,
+            employee_name="NGUYỄN ANH TUẤN",
+        ),
+        _actor(),
+    )
+
+    assert resolution.status is SubjectResolutionStatus.AMBIGUOUS
+    assert [option.label for option in resolution.options] == [
+        "NGUYỄN ANH TUẤN · Mã NV: 00234086",
+        "NGUYỄN ANH TUẤN · Mã NV: 00999999",
+    ]

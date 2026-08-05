@@ -155,6 +155,13 @@ class FakeSchema:
             version="resource-v1",
         )
 
+    async def get_record(self, key, record_id, **kwargs):
+        return ProfileSnapshot(
+            resource_key=key,
+            snapshot=dict(self.saved_values),
+            version=f"record-v1:{record_id}",
+        )
+
     async def get_field_options(self, *args, **kwargs):
         return ()
 
@@ -169,11 +176,14 @@ class FakeSchema:
         if self.save_error is not None:
             raise self.save_error
         self.saved_values.update(payload.get("changes", {}))
+        record_id = payload.get("record_id")
+        if payload.get("operation") == "create" and record_id is None:
+            record_id = 777
         return SimpleNamespace(
             message=("Các thay đổi đã được lưu vào hồ sơ tự khai nhưng "
                      "chưa gửi phê duyệt."),
             draft_saved=True,
-            record_id=payload.get("record_id"),
+            record_id=record_id,
         )
 
 
@@ -433,6 +443,59 @@ async def test_10_save_draft_does_not_create_pending_action():
     assert pending.created == []
     assert len(schema.saved_drafts) == 1
     assert schema.saved_drafts[0]["changes"] == {"alternate_name": "Tên nháp"}
+
+
+@pytest.mark.asyncio
+async def test_10b_collection_create_can_save_draft_after_finish():
+    form, _, _ = await run_target(
+        section=EDUCATION.key,
+        resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+    )
+    with_name, _, _ = await run_target(
+        section=EDUCATION.key,
+        resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={CERTIFICATE_NAME.key: "A1"},
+        previous_workflow=form["workflow_data"],
+        answer_field=CERTIFICATE_NAME.key,
+    )
+    completed, _, _ = await run_target(
+        section=EDUCATION.key,
+        resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={CERTIFICATE_TYPE.key: "1"},
+        previous_workflow=with_name["workflow_data"],
+        answer_field=CERTIFICATE_TYPE.key,
+    )
+    reviewed, _, _ = await run_target(
+        section=EDUCATION.key,
+        resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={"profile_edit_action": "finish"},
+        previous_workflow=completed["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+    saved, pending, schema = await run_target(
+        section=EDUCATION.key,
+        resource=CERTIFICATES.key,
+        operation=Operation.CREATE,
+        collected={"profile_edit_action": "save_draft"},
+        previous_workflow=reviewed["workflow_data"],
+        answer_field="profile_edit_action",
+    )
+
+    assert reviewed["response_data"]["clarification"]["input_type"] == (
+        "edit_session_actions"
+    )
+    assert saved["response_data"]["draft_saved"] is True
+    assert pending.created == []
+    assert len(schema.saved_drafts) == 1
+    assert schema.saved_drafts[0]["operation"] == "create"
+    assert schema.saved_drafts[0]["changes"] == {
+        CERTIFICATE_NAME.key: "A1",
+        CERTIFICATE_TYPE.key: "1",
+    }
 
 
 @pytest.mark.asyncio

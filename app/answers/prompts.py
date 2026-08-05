@@ -38,9 +38,22 @@ def build_final_answer_prompt(context: FinalAnswerContext) -> str:
         default=str,
         separators=(",", ":"),
     )
+    guidance = ""
+    if context.intent.value == "leave.balance":
+        guidance = (
+            "\n\nYÊU CẦU DIỄN GIẢI SỐ DƯ PHÉP:\n"
+            "Nếu DATA có các trường tương ứng, phải phân biệt rõ tổng hạn mức "
+            "năm (allocated_days), số đã dùng được duyệt (approved_used_days), "
+            "số còn lại cả năm (remaining_days) và số được sử dụng tại thời điểm "
+            "hiện tại (available_days). Nếu remaining_days khác available_days, "
+            "nói rõ available_days là mức khả dụng hiện tại theo tiến độ tích lũy; "
+            "không mô tả phần chênh lệch là ngày đã nghỉ. Không nói đơn chờ duyệt "
+            "hoặc nháp giữ số dư khi các cờ pending_reserves_allocation và "
+            "draft_reserves_allocation là false."
+        )
     return (
         f"CÂU HỎI GỐC:\n{context.original_query}\n\n"
         f"INTENT:\n{context.intent.value}\n\n"
-        f"DỮ LIỆU:\n{data}\n\n"
+        f"DỮ LIỆU:\n{data}{guidance}\n\n"
         "Hãy trả lời trực tiếp câu hỏi gốc dựa trên dữ liệu trên."
     )

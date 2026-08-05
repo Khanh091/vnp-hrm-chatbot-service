@@ -100,27 +100,6 @@ async def format_response_node(
                 result,
                 intent=classification.intent,
             )
-            if result.tool_name in {
-                "leave_get_balance",
-                "attendance_get_monthly_summary",
-            }:
-                text = fallback_text
-                data = {"result": result.data}
-                update = stage_update(
-                    state,
-                    event="response_ready",
-                    timing_name="response_formatting_ms",
-                    started=started,
-                )
-                update.update(
-                    {
-                        "response_type": response_type,
-                        "capability_outcome": outcome,
-                        "response_text": text,
-                        "response_data": data,
-                    }
-                )
-                return update
             try:
                 trusted = state["trusted_context"]
                 context = runtime.context.answer_context_builder.build(

@@ -599,13 +599,14 @@ async def resolve_profile_write_node(
                 if item.key not in changes
                 or changes[item.key] in {None, ""}
             ]
-            if edit_action != "finish":
+            terminal_edit_actions = {"finish", "save_draft", "submit"}
+            if edit_action not in terminal_edit_actions:
                 return await _profile_draft_form(
                     state, runtime, started, classification, operation,
                     workflow_data, resource, list(operation_fields),
                     record_reference, changes, {}, None,
                 )
-            if missing:
+            if missing and edit_action in terminal_edit_actions:
                 labels = "\n".join(f"- {item.label}" for item in missing)
                 return await _profile_draft_form(
                     state, runtime, started, classification, operation,
@@ -1380,38 +1381,69 @@ async def _verify_saved_draft(
         item.key: item
         for item in (section.direct_fields if section is not None else resource.fields)
     }
-    if section is not None:
-        reloaded = await runtime.context.profile_schema_client.get_section_snapshot(
-            section.key, odoo_user_id=actor, request_id=request_id
-        )
-        snapshot = reloaded.snapshot
-    elif resource.resource_type == "singleton":
-        reloaded = await runtime.context.profile_schema_client.get_current_snapshot(
-            resource.key, odoo_user_id=actor, request_id=request_id
-        )
-        snapshot = reloaded.snapshot
-    else:
-        verified_record_id = result.record_id or record_id
-        if not verified_record_id:
-            raise ProfileSchemaError(
-                "PROFILE_DRAFT_SAVE_FAILED",
-                "Odoo draft response did not include the edition record token",
-            )
-        reloaded = await runtime.context.profile_schema_client.get_record(
-            resource.key, int(verified_record_id),
-            odoo_user_id=actor, request_id=request_id,
-        )
-        snapshot = reloaded.snapshot
-    mismatches = [
-        key for key, value in changes.items()
-        if key not in definitions
-        or not profile_values_equal(definitions[key], snapshot.get(key), value)
-    ]
-    if mismatches:
+    verified_record_id = result.record_id or record_id
+    if (
+        section is None
+        and resource.resource_type != "singleton"
+        and not verified_record_id
+    ):
         raise ProfileSchemaError(
             "PROFILE_DRAFT_SAVE_FAILED",
-            "Reloaded edition draft does not contain the accepted changes",
+            "Odoo draft response did not include the edition record token",
         )
+
+    mismatches: list[str] = []
+    for delay in (0.0, 0.05, 0.15):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            if section is not None:
+                reloaded = (
+                    await runtime.context.profile_schema_client.get_section_snapshot(
+                        section.key, odoo_user_id=actor, request_id=request_id
+                    )
+                )
+            elif resource.resource_type == "singleton":
+                reloaded = (
+                    await runtime.context.profile_schema_client.get_current_snapshot(
+                        resource.key, odoo_user_id=actor, request_id=request_id
+                    )
+                )
+            else:
+                reloaded = await runtime.context.profile_schema_client.get_record(
+                    resource.key,
+                    int(verified_record_id),
+                    odoo_user_id=actor,
+                    request_id=request_id,
+                )
+        except ProfileSchemaError as error:
+            if error.reason_code != "PROFILE_RECORD_NOT_FOUND" or delay == 0.15:
+                raise
+            continue
+        snapshot = reloaded.snapshot
+        mismatches = [
+            key
+            for key, value in changes.items()
+            if key not in definitions
+            or not profile_values_equal(
+                definitions[key], snapshot.get(key), value
+            )
+        ]
+        if not mismatches:
+            return
+
+    logger.warning(
+        "profile_draft_reload_mismatch conversation_id=%s resource_key=%s "
+        "record_id=%s mismatched_fields=%s",
+        state["conversation_id"],
+        resource.key if resource else section.key,
+        verified_record_id,
+        mismatches,
+    )
+    raise ProfileSchemaError(
+        "PROFILE_DRAFT_SAVE_FAILED",
+        "Reloaded edition draft does not contain the accepted changes",
+    )
 
 
 async def _resume_deferred_profile_query(

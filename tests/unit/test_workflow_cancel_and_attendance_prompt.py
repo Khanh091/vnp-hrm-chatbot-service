@@ -8,13 +8,21 @@ from app.context.conversation import ConversationStatus
 from app.context.dialog_manager import DialogTurnManager
 from app.orchestration.nodes.ask_clarification import ask_clarification_node
 from app.orchestration.nodes.detect_turn_type import detect_turn_type_node
+from app.orchestration.nodes.format_response import format_response_node
 from app.orchestration.routes import route_after_turn_detection
 from app.orchestration.state import ChatResponseType, TurnType
 from app.routing.intent_refiner import direct_classify_from_exclusive_hints
 from app.routing.query_normalizer import QueryNormalizer
 from app.routing.rules import infer_rule_hints
-from app.routing.taxonomy import Intent
+from app.routing.schemas import Domain, QueryClassification
+from app.routing.taxonomy import (
+    Intent,
+    Operation,
+    QueryRoute,
+    SubjectScope,
+)
 from app.tools import build_tool_registry
+from app.tools.definitions import ToolExecutionResult
 from app.workflows import SlotManager, build_workflow_registry
 
 
@@ -170,3 +178,65 @@ def test_cancel_workflow_action_does_not_require_pending_action_id() -> None:
     assert action.action_id is None
     with pytest.raises(ValidationError):
         ChatAction(type=ChatActionType.CONFIRM)
+
+
+@pytest.mark.asyncio
+async def test_attendance_summary_uses_final_answer_service() -> None:
+    class _ContextBuilder:
+        def build(self, **values: object) -> object:
+            return values
+
+    class _FinalAnswerService:
+        calls = 0
+
+        async def stream_answer(self, context: object, **_: object):
+            self.calls += 1
+            assert isinstance(context, dict)
+            yield "Tháng 2026-08, bạn có 1 ngày không chấm công."
+
+    final_answers = _FinalAnswerService()
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(
+            response_formatter=SimpleNamespace(
+                format=lambda *_args, **_kwargs: "FIXED_FORMATTER_OUTPUT"
+            ),
+            answer_context_builder=_ContextBuilder(),
+            final_answer_service=final_answers,
+        )
+    )
+    classification = QueryClassification(
+        route=QueryRoute.DATA_QUERY,
+        domain=Domain.ATTENDANCE,
+        intent=Intent.ATTENDANCE_MONTHLY_SUMMARY,
+        operation=Operation.READ,
+        scope=SubjectScope.SELF,
+        confidence=0.98,
+        reason_code="TEST_ATTENDANCE",
+    )
+    state = {
+        "request_id": "request-1",
+        "user_message": "tháng này tôi chấm công thiếu mấy ngày",
+        "classification": classification.model_dump(mode="json"),
+        "workflow_data": {},
+        "trusted_context": {
+            "language": "vi_VN",
+            "timezone": "Asia/Ho_Chi_Minh",
+        },
+        "tool_result": ToolExecutionResult(
+            tool_name="attendance_get_monthly_summary",
+            success=True,
+            data={"month": "2026-08", "no_attendance_days": 1},
+            latency_ms=1,
+        ).model_dump(mode="json"),
+        "stage_timings": {},
+        "graph_events": [],
+        "current_step": 0,
+    }
+
+    update = await format_response_node(state, runtime)
+
+    assert final_answers.calls == 1
+    assert update["response_text"] == (
+        "Tháng 2026-08, bạn có 1 ngày không chấm công."
+    )
+    assert update["response_text"] != "FIXED_FORMATTER_OUTPUT"

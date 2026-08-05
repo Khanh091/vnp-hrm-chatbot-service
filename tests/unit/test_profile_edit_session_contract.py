@@ -8,6 +8,8 @@ from app.integrations.odoo.profile_schema import (
     ProfileField,
     ProfileOption,
     ProfileOptionList,
+    ProfileRecord,
+    ProfileResource,
     ProfileSchemaError,
     ProfileWriteMode,
 )
@@ -18,6 +20,7 @@ from app.orchestration.nodes.resolve_profile_write import (
     _draft_field_rows,
     _validate_current_option_sets,
     _validate_profile_fields,
+    _verify_saved_draft,
     profile_values_equal,
 )
 from app.orchestration.state import ChatResponseType
@@ -180,6 +183,75 @@ async def test_04_save_draft_is_visible_after_reload():
 
 
 @pytest.mark.asyncio
+async def test_04b_collection_draft_verification_retries_stale_reload(
+    monkeypatch,
+):
+    field = _field("issuer")
+    resource = ProfileResource(
+        key="certificate_records",
+        label="Văn bằng, chứng chỉ",
+        section_key="education_training",
+        resource_type="collection",
+        readable=True,
+        creatable=True,
+        updatable=True,
+        deletable=True,
+        fields=(field,),
+    )
+
+    class _EventuallyConsistentSchema:
+        calls = 0
+
+        async def get_record(self, *_args, **_kwargs):
+            self.calls += 1
+            value = "" if self.calls == 1 else "PTIT"
+            return ProfileRecord(
+                record_id=18,
+                label="A1",
+                snapshot={"issuer": value},
+                version=f"version-{self.calls}",
+                can_update=True,
+                can_delete=True,
+            )
+
+    async def _no_wait(_delay):
+        return None
+
+    monkeypatch.setattr(
+        "app.orchestration.nodes.resolve_profile_write.asyncio.sleep",
+        _no_wait,
+    )
+    schema = _EventuallyConsistentSchema()
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(profile_schema_client=schema)
+    )
+    result = ProfileExecutionResult(
+        resource_key=resource.key,
+        operation="create",
+        write_mode="approval_request",
+        draft_saved=True,
+        record_id=18,
+    )
+
+    await _verify_saved_draft(
+        {
+            "conversation_id": "conv-cert",
+            "request_id": "req-cert",
+            "trusted_context": {"odoo_user_id": 7},
+        },
+        runtime,
+        None,
+        resource,
+        Operation.CREATE,
+        None,
+        {"issuer": "PTIT"},
+        result,
+    )
+
+    assert schema.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_05_save_failure_keeps_session_and_never_reports_success():
     reviewed, _, _ = await _review_mobile()
     failed, _, _ = await run_target(
@@ -279,6 +351,72 @@ async def test_11_stale_option_does_not_mutate_draft_arguments():
     result = await merge_clarification_node(state, _merge_runtime(schema))
     assert "collected_arguments" not in result
     assert state["collected_arguments"] == {}
+
+
+@pytest.mark.asyncio
+async def test_11b_employee_option_resolves_persisted_subject():
+    state = {
+        "conversation_id": "conv-directory",
+        "request_id": "req-directory",
+        "trusted_context": {"odoo_user_id": 7},
+        "pending_tool_name": "employee_get_employment",
+        "missing_arguments": ["employee_id"],
+        "ambiguous_arguments": [],
+        "collected_arguments": {},
+        "workflow_data": {
+            "current_field": "employee_id",
+            "clarification_options": [
+                {
+                    "value": 42,
+                    "label": "NGUYỄN ANH TUẤN · Mã NV: 00234086",
+                    "employee_code": "00234086",
+                }
+            ],
+            "subject_resolution": {
+                "status": "ambiguous",
+                "subject": None,
+                "options": [
+                    {
+                        "value": 42,
+                        "label": "NGUYỄN ANH TUẤN · Mã NV: 00234086",
+                        "employee_code": "00234086",
+                    }
+                ],
+                "reason_code": "SUBJECT_AMBIGUOUS",
+            },
+        },
+        "clarification": {
+            "answer_type": "option_select",
+            "field": "employee_id",
+            "value": "42",
+            "label": "NGUYỄN ANH TUẤN · Mã NV: 00234086",
+        },
+        "user_message": "NGUYỄN ANH TUẤN",
+        "stage_timings": {},
+        "graph_events": [],
+    }
+    tool = SimpleNamespace(enabled=True)
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(
+            tool_registry=SimpleNamespace(get=lambda _name: tool),
+            workflow_registry=SimpleNamespace(get=lambda _name: None),
+        )
+    )
+
+    result = await merge_clarification_node(state, runtime)
+
+    assert result["collected_arguments"]["employee_id"] == 42
+    assert result["workflow_data"]["subject_resolution"] == {
+        "status": "resolved",
+        "subject": {
+            "type": "employee",
+            "employee_id": 42,
+            "employee_code": "00234086",
+            "source": "structured_option",
+        },
+        "options": [],
+        "reason_code": "SUBJECT_RESOLVED",
+    }
 
 
 def test_12_dependency_change_clears_all_invalid_descendants():

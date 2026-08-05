@@ -438,6 +438,7 @@ async def merge_clarification_node(
             ):
                 arguments[field] = int(str(structured_value))
                 options = [item.model_dump(mode="json") for item in leave_type_options]
+                workflow_overrides["leave_type_options"] = options
                 resolved = True
         elif field in {"employee_id", "department_id"}:
             subject_options = [
@@ -448,12 +449,43 @@ async def merge_clarification_node(
                 )
                 if isinstance(item, dict)
             ]
-            if isinstance(structured_value, (int, str)) and any(
-                str(item.get("value")) == str(structured_value)
-                for item in subject_options
+            selected_subject_option = next(
+                (
+                    item
+                    for item in subject_options
+                    if str(item.get("value")) == str(structured_value)
+                ),
+                None,
+            )
+            if (
+                isinstance(structured_value, (int, str))
+                and selected_subject_option is not None
             ):
-                arguments[field] = int(str(structured_value))
+                subject_id = int(str(structured_value))
+                arguments[field] = subject_id
                 options = subject_options
+                subject_type = (
+                    SubjectType.EMPLOYEE
+                    if field == "employee_id"
+                    else SubjectType.DEPARTMENT
+                )
+                subject = {
+                    "type": subject_type.value,
+                    field: subject_id,
+                    "source": "structured_option",
+                }
+                if field == "employee_id" and selected_subject_option.get(
+                    "employee_code"
+                ):
+                    subject["employee_code"] = str(
+                        selected_subject_option["employee_code"]
+                    )
+                subject_resolution_data = {
+                    "status": SubjectResolutionStatus.RESOLVED.value,
+                    "subject": subject,
+                    "options": [],
+                    "reason_code": "SUBJECT_RESOLVED",
+                }
                 resolved = True
         else:
             arguments[field] = structured_value

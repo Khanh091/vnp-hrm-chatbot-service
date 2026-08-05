@@ -279,9 +279,7 @@ class SubjectResolver:
                         or 0
                     ),
                     label=(
-                        match.employee_name
-                        or match.department_name
-                        or "Không xác định"
+                        self._lookup_option_label(match)
                     ),
                     employee_code=match.employee_code,
                 )
@@ -294,3 +292,14 @@ class SubjectResolver:
             ],
             reason_code="SUBJECT_AMBIGUOUS",
         )
+
+    @staticmethod
+    def _lookup_option_label(match: ResolvedSubject) -> str:
+        label = (
+            match.employee_name
+            or match.department_name
+            or "Không xác định"
+        )
+        if match.type is SubjectType.EMPLOYEE and match.employee_code:
+            return f"{label} · Mã NV: {match.employee_code}"
+        return label

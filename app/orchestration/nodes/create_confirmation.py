@@ -12,6 +12,7 @@ from app.orchestration.state import ChatGraphState, ChatResponseType
 from app.workflows.leave_action import (
     LeaveRequestSnapshot,
     confirmation_summary,
+    create_confirmation_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,18 +45,28 @@ async def create_confirmation_node(
     summary = _display_summary(arguments)
     leave_type_id = summary.pop("leave_type_id", None)
     if leave_type_id is not None:
-        options = state.get("workflow_data", {}).get("clarification_options", [])
+        workflow_data = state.get("workflow_data", {})
+        options = workflow_data.get("leave_type_options") or workflow_data.get(
+            "clarification_options", []
+        )
         label = next(
             (
                 item.get("label")
                 for item in options
-                if item.get("value") == leave_type_id
+                if str(item.get("value")) == str(leave_type_id)
             ),
             None,
         )
         summary["leave_type"] = label or f"Loại nghỉ #{leave_type_id}"
-    internal_summary = dict(summary)
-    response_summary = summary
+    if tool_name == "leave_create_request":
+        response_summary = create_confirmation_summary(
+            arguments,
+            leave_type_label=str(summary.get("leave_type") or "Loại nghỉ"),
+        )
+        internal_summary = response_summary
+    else:
+        internal_summary = dict(summary)
+        response_summary = summary
     leave_data = state.get("workflow_data", {})
     snapshot_data = leave_data.get("original_snapshot")
     if tool_name in {"leave_update_request", "leave_cancel_request"} and isinstance(
@@ -137,8 +148,11 @@ async def create_confirmation_node(
             "response_text": question,
             "response_data": {
                 "action_id": action.action_id,
+                "action": tool.operation.value,
                 "title": title,
                 "summary": response_summary,
+                "confirm_label": title,
+                "cancel_label": "Hủy",
                 "expires_at": action.expires_at.isoformat(),
             },
         }
