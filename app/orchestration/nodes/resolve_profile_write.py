@@ -220,6 +220,53 @@ async def resolve_profile_write_node(
                     "fields": sum(len(item.direct_fields) for item in sections)
                     + sum(len(item.fields) for item in all_resources),
                 }
+                if resolution.needs_clarification and len(field_keys) > 1:
+                    candidate_resource = next(
+                        (
+                            item for item in all_resources
+                            if item.key == resource_key
+                            and item.section_key == section_key
+                        ),
+                        None,
+                    )
+                    candidate_fields = (
+                        [
+                            item for item in candidate_resource.fields
+                            if item.key in field_keys
+                        ]
+                        if candidate_resource is not None
+                        else [
+                            item
+                            for candidate_section in sections
+                            if candidate_section.key == section_key
+                            for item in candidate_section.direct_fields
+                            if item.key in field_keys
+                        ]
+                    )
+                    return await _clarification(
+                        state,
+                        runtime,
+                        started,
+                        classification,
+                        operation,
+                        workflow_data,
+                        section_key=section_key,
+                        resource_key=resource_key,
+                        field_keys=field_keys,
+                        record_reference=record_reference,
+                        changes=changes,
+                        slot_name="profile_field_keys",
+                        input_type="field_select",
+                        text="Có nhiều thông tin phù hợp. Bạn muốn sửa mục nào?",
+                        options=[
+                            {
+                                "value": item.key,
+                                "label": item.label,
+                                "description": item.description,
+                            }
+                            for item in candidate_fields
+                        ],
+                    )
             except ProfileTargetOutsideAllowlistError as error:
                 workflow_data["profile_resolution_error"] = error.reason_code
                 return await _clarify_section(

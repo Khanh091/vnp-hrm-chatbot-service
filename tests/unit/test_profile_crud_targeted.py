@@ -438,3 +438,116 @@ async def test_12_raw_text_is_rejected_for_selection_field():
     assert "chọn từ danh sách" in result["response_text"]
     assert result["workflow_data"]["profile_changes"] == {}
     assert pending.created == []
+
+
+def test_13_duplicate_field_aliases_resolve_to_bounded_ambiguity():
+    common_alias = "\u0111\u1ecba ch\u1ec9 chi ti\u1ebft"
+    permanent = field("permanent_detail", "Chi ti\u1ebft h\u1ed9 kh\u1ea9u").model_copy(
+        update={"aliases": (common_alias,)}
+    )
+    current = field("current_detail", "Chi ti\u1ebft n\u01a1i \u1edf").model_copy(
+        update={"aliases": (common_alias,)}
+    )
+    address = ProfileResource(
+        key="address_information",
+        label="Th\u00f4ng tin \u0111\u1ecba ch\u1ec9",
+        section_key=BASIC.key,
+        resource_type="singleton",
+        readable=True,
+        creatable=False,
+        updatable=True,
+        deletable=False,
+        fields=(permanent, current),
+    )
+
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "th\u00eam \u0111\u1ecba ch\u1ec9 chi ti\u1ebft",
+        Intent.PROFILE_ADDRESS,
+        Operation.UPDATE,
+        (BASIC,),
+        (address,),
+    )
+
+    assert resolution is not None
+    assert resolution.needs_clarification is True
+    assert resolution.resource_key == address.key
+    assert set(resolution.field_keys) == {permanent.key, current.key}
+
+
+def test_14_collection_label_punctuation_does_not_downgrade_to_field():
+    certificate_name = field(
+        "certificate_name", "T\u00ean v\u0103n b\u1eb1ng/ch\u1ee9ng ch\u1ec9"
+    ).model_copy(update={"aliases": ("ch\u1ee9ng ch\u1ec9", "v\u0103n b\u1eb1ng")})
+    certificates = ProfileResource(
+        key="certificate_records",
+        label="V\u0103n b\u1eb1ng, ch\u1ee9ng ch\u1ec9",
+        section_key=EDUCATION.key,
+        resource_type="collection",
+        readable=True,
+        creatable=True,
+        updatable=True,
+        deletable=True,
+        fields=(certificate_name,),
+    )
+
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "th\u00eam m\u1ed9t v\u0103n b\u1eb1ng ch\u1ee9ng ch\u1ec9",
+        Intent.PROFILE_CERTIFICATES,
+        Operation.CREATE,
+        (EDUCATION,),
+        (certificates,),
+    )
+
+    assert resolution is not None
+    assert resolution.resource_key == certificates.key
+    assert resolution.field_keys == []
+    assert resolution.reason_code == "EXACT_COLLECTION_MATCH"
+
+
+def test_15_create_of_derived_summary_redirects_to_source_collection():
+    derived = HIGHEST_EDUCATION.model_copy(
+        update={"aliases": ("tr\u00ecnh \u0111\u1ed9 chuy\u00ean m\u00f4n",)}
+    )
+    summary = EDUCATION_SUMMARY.model_copy(update={"fields": (derived,)})
+
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "th\u00eam m\u1ed9t tr\u00ecnh \u0111\u1ed9 chuy\u00ean m\u00f4n",
+        Intent.PROFILE_EDUCATION,
+        Operation.CREATE,
+        (EDUCATION,),
+        (summary, EDUCATION_RECORDS),
+    )
+
+    assert resolution is not None
+    assert resolution.resource_key == EDUCATION_RECORDS.key
+    assert resolution.field_keys == []
+    assert resolution.reason_code == "DERIVED_COLLECTION_CREATE"
+
+
+def test_16_operation_prefix_does_not_remove_words_inside_target():
+    course = field("course_name", "Kh\u00f3a \u0111\u00e0o t\u1ea1o")
+    training = ProfileResource(
+        key="training_records",
+        label="\u0110\u00e0o t\u1ea1o, b\u1ed3i d\u01b0\u1ee1ng",
+        section_key=EDUCATION.key,
+        resource_type="collection",
+        readable=True,
+        creatable=True,
+        updatable=True,
+        deletable=True,
+        fields=(course,),
+    )
+
+    resolution = ProfileTargetResolver._resolve_exact_match(
+        "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh \u0111\u00e0o t\u1ea1o b\u1ed3i d\u01b0\u1ee1ng",
+        Intent.PROFILE_EDUCATION,
+        Operation.CREATE,
+        (EDUCATION,),
+        (training,),
+    )
+
+    assert resolution is not None
+    assert resolution.resource_key == training.key
+    assert "dao tao" in ProfileTargetResolver._target_text(
+        "th\u00eam m\u1ed9t qu\u00e1 tr\u00ecnh \u0111\u00e0o t\u1ea1o b\u1ed3i d\u01b0\u1ee1ng"
+    )

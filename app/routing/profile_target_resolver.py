@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -246,7 +247,46 @@ class ProfileTargetResolver:
         field_is_unique = (
             len(field_matches) == 1 or best_field_score > field_matches[1][0]
         )
+        tied_fields = [
+            item for item in field_matches if item[0] == best_field_score
+        ]
+        if best_field_score >= 80 and len(tied_fields) > 1:
+            owners = {
+                (
+                    item_section.key if item_section else item_resource.section_key,
+                    item_resource.key if item_resource else None,
+                )
+                for _, item_section, item_resource, _ in tied_fields
+            }
+            if len(owners) == 1:
+                owner_section, owner_resource = next(iter(owners))
+                return ProfileTargetResolution(
+                    section_key=owner_section,
+                    resource_key=owner_resource,
+                    field_keys=[item_field.key for *_, item_field in tied_fields],
+                    confidence=1,
+                    needs_clarification=True,
+                    reason_code="AMBIGUOUS_FIELD_MATCH",
+                )
         if best_field_score >= 80 and field_is_unique:
+            if operation is Operation.CREATE and field.derived_from_resource:
+                derived_resource = next(
+                    (
+                        item for item in resources
+                        if item.key == field.derived_from_resource
+                        and item.resource_type == "collection"
+                        and item.creatable
+                    ),
+                    None,
+                )
+                if derived_resource is not None:
+                    return ProfileTargetResolution(
+                        section_key=derived_resource.section_key,
+                        resource_key=derived_resource.key,
+                        confidence=1,
+                        needs_clarification=False,
+                        reason_code="DERIVED_COLLECTION_CREATE",
+                    )
             return ProfileTargetResolution(
                 section_key=(section.key if section else resource.section_key),
                 resource_key=resource.key if resource else None,
@@ -267,7 +307,7 @@ class ProfileTargetResolver:
 
     @classmethod
     def _target_text(cls, query: str) -> str:
-        operation_words = {
+        leading_operation_words = {
             "sua",
             "them",
             "xoa",
@@ -277,27 +317,26 @@ class ProfileTargetResolver:
             "doi",
             "tao",
             "bo",
+            "sung",
             "mot",
         }
-        return " ".join(
-            word
-            for word in cls._normalized(query).split()
-            if word not in operation_words and not word.isdigit()
-        )
+        words = cls._normalized(query).split()
+        while words and (
+            words[0] in leading_operation_words or words[0].isdigit()
+        ):
+            words.pop(0)
+        return " ".join(words)
 
     @staticmethod
     def _normalized(value: str) -> str:
         folded = unicodedata.normalize("NFD", value.casefold())
-        return " ".join(
-            "".join(
+        letters = "".join(
                 character
                 for character in folded
                 if unicodedata.category(character) != "Mn"
             )
-            .replace("đ", "d")
-            .replace("_", " ")
-            .split()
-        )
+        letters = letters.replace("đ", "d").replace("_", " ")
+        return " ".join(re.sub(r"[^\w\s]", " ", letters).split())
 
     @staticmethod
     def _candidate_sections(
